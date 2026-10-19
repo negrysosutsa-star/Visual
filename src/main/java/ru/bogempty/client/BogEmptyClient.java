@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
+import ru.bogempty.client.config.ConfigManager;
 import ru.bogempty.client.gui.ClickGui;
 import ru.bogempty.client.module.ModuleManager;
 
@@ -15,13 +16,13 @@ public class BogEmptyClient implements ClientModInitializer {
     public static BogEmptyClient INSTANCE;
     public static ModuleManager moduleManager;
     public static ClickGui clickGui;
-
-    private static KeyBinding openGuiKey;
+    public static KeyBinding openGuiKey;
 
     @Override
     public void onInitializeClient() {
         INSTANCE = this;
         moduleManager = new ModuleManager();
+        ConfigManager.load(moduleManager);
         clickGui = new ClickGui();
 
         openGuiKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
@@ -32,13 +33,10 @@ public class BogEmptyClient implements ClientModInitializer {
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (openGuiKey.wasPressed()) {
-                if (client.currentScreen == null) {
-                    client.setScreen(clickGui);
-                } else if (client.currentScreen instanceof ClickGui) {
-                    client.setScreen(null);
-                }
+            while (openGuiKey.wasPressed()) {
+                if (client.currentScreen == null) client.setScreen(clickGui);
             }
+            moduleManager.handleKeys(client);
             moduleManager.onTick();
         });
 
