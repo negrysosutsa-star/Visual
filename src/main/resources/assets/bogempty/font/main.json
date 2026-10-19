@@ -4,8 +4,10 @@
       "type": "ttf",
       "file": "bogempty:main.ttf",
       "shift": [0.0, 0.0],
-      "size": 9.0,
+      "size": 10.0,
       "oversample": 8.0
-    }
+    },
+    { "type": "reference", "id": "minecraft:include/default" },
+    { "type": "reference", "id": "minecraft:include/unifont" }
   ]
 }
