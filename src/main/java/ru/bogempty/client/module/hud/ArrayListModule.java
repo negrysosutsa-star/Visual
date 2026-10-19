@@ -4,6 +4,7 @@ import net.minecraft.client.gui.DrawContext;
 import ru.bogempty.client.BogEmptyClient;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
+import ru.bogempty.client.render.Fonts;
 import ru.bogempty.client.render.RenderUtils;
 
 import java.util.Comparator;
@@ -17,26 +18,22 @@ public class ArrayListModule extends Module {
     }
 
     @Override
-    public void onRender2D(DrawContext context, float tickDelta) {
-        List<Module> enabled = BogEmptyClient.moduleManager.modules.stream()
+    public void onRender2D(DrawContext c, float tickDelta) {
+        List<Module> list = BogEmptyClient.moduleManager.modules.stream()
                 .filter(Module::isEnabled)
-                .filter(m -> !(m instanceof ArrayListModule) && !(m instanceof Watermark))
-                .sorted(Comparator.comparingInt(m -> -mc.textRenderer.getWidth(m.name)))
+                .filter(m -> m.category != Category.HUD)
+                .sorted(Comparator.comparingInt(m -> -Fonts.width(m.name)))
                 .collect(Collectors.toList());
 
-        int y = 22;
-        int screenWidth = mc.getWindow().getScaledWidth();
-
-        for (Module m : enabled) {
-            String name = m.name;
-            int width = mc.textRenderer.getWidth(name) + 8;
-            int x = screenWidth - width - 4;
-
-            RenderUtils.drawRoundedRect(context, x, y - 1, screenWidth - 2, y + 11, 3, 0xAA0A0A12);
-            RenderUtils.drawRect(context, screenWidth - 3, y - 1, screenWidth - 1, y + 11, 0xFF00FFAA);
-
-            context.drawTextWithShadow(mc.textRenderer, name, x + 3, y + 1, 0xFF00FFAA);
-            y += 13;
+        int sw = mc.getWindow().getScaledWidth();
+        int y = 6;
+        for (Module m : list) {
+            int w = Fonts.width(m.name) + 12;
+            int x = sw - w - 4;
+            RenderUtils.drawRoundedRect(c, x, y, sw - 4, y + 15, 4, 0xAA0C0C14);
+            RenderUtils.drawRect(c, sw - 6, y + 3, sw - 4, y + 12, 0xFF7C6CFF);
+            Fonts.draw(c, m.name, x + 5, y + 3, 0xFFE8E8FF);
+            y += 17;
         }
     }
 }
