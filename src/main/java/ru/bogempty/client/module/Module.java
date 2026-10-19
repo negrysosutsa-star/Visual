@@ -2,13 +2,20 @@ package ru.bogempty.client.module;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import ru.bogempty.client.setting.Setting;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public abstract class Module {
-    public String name;
-    public String description;
-    public Category category;
+    public final String name;
+    public final String description;
+    public final Category category;
     public boolean enabled;
     public int key = -1;
+    public boolean keyDown;
+    public float anim;
+    public final List<Setting> settings = new ArrayList<>();
 
     protected final MinecraftClient mc = MinecraftClient.getInstance();
 
@@ -18,8 +25,18 @@ public abstract class Module {
         this.category = category;
     }
 
+    protected <T extends Setting> T add(T setting) {
+        settings.add(setting);
+        return setting;
+    }
+
     public void toggle() {
-        enabled = !enabled;
+        setEnabled(!enabled);
+    }
+
+    public void setEnabled(boolean value) {
+        if (value == enabled) return;
+        enabled = value;
         if (enabled) onEnable();
         else onDisable();
     }
