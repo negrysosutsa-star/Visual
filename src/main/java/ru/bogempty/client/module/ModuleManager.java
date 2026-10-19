@@ -2,6 +2,7 @@ package ru.bogempty.client.module;
 
 import net.minecraft.client.gui.DrawContext;
 import ru.bogempty.client.module.hud.ArrayListModule;
+import ru.bogempty.client.module.hud.InfoHud;
 import ru.bogempty.client.module.hud.Watermark;
 import ru.bogempty.client.module.movement.AutoSprint;
 import ru.bogempty.client.module.movement.ShiftTap;
@@ -25,6 +26,7 @@ public class ModuleManager {
 
         // HUD
         modules.add(new Watermark());
+        modules.add(new InfoHud());
         modules.add(new ArrayListModule());
     }
 
