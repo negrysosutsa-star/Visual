@@ -30,6 +30,12 @@ public abstract class Module {
         return setting;
     }
 
+    protected <T extends Setting> T add(T setting, String desc) {
+        setting.desc = desc;
+        settings.add(setting);
+        return setting;
+    }
+
     public void toggle() {
         setEnabled(!enabled);
     }
