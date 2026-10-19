@@ -9,7 +9,6 @@ import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 import ru.bogempty.client.gui.ClickGui;
 import ru.bogempty.client.module.ModuleManager;
-import ru.bogempty.client.render.RenderUtils;
 
 public class BogEmptyClient implements ClientModInitializer {
 
@@ -40,12 +39,11 @@ public class BogEmptyClient implements ClientModInitializer {
                     client.setScreen(null);
                 }
             }
-
             moduleManager.onTick();
         });
 
-        HudRenderCallback.EVENT.register((context, tickDelta) -> {
-            moduleManager.onRender2D(context, tickDelta);
+        HudRenderCallback.EVENT.register((context, tickCounter) -> {
+            moduleManager.onRender2D(context, tickCounter.getTickDelta(true));
         });
     }
 }
