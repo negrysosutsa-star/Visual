@@ -13,7 +13,9 @@ import ru.bogempty.client.module.hud.Watermark;
 import ru.bogempty.client.module.movement.AutoSprint;
 import ru.bogempty.client.module.movement.ShiftTap;
 import ru.bogempty.client.module.visual.CustomCrosshair;
+import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.FullBright;
+import ru.bogempty.client.module.visual.NoRender;
 import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
@@ -33,6 +35,8 @@ public class ModuleManager {
         // Visual
         modules.add(new FullBright());
         modules.add(new Zoom());
+        modules.add(new CustomSky());
+        modules.add(new NoRender());
         modules.add(new CustomCrosshair());
 
         // HUD
