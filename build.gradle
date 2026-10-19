@@ -15,17 +15,6 @@ repositories {
     mavenCentral()
 }
 
-loom {
-    splitEnvironmentSourceSets()
-
-    mods {
-        "bogempty" {
-            sourceSet sourceSets.main
-            sourceSet sourceSets.client
-        }
-    }
-}
-
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
@@ -43,6 +32,7 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
+    it.options.encoding = "UTF-8"
 }
 
 java {
@@ -51,4 +41,8 @@ java {
     targetCompatibility = JavaVersion.VERSION_21
 }
 
-jar
+jar {
+    from("LICENSE") {
+        rename { "${it}_${project.base.archivesName.get()}" }
+    }
+}
