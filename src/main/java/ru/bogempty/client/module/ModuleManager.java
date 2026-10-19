@@ -1,13 +1,20 @@
 package ru.bogempty.client.module;
 
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.util.InputUtil;
+import ru.bogempty.client.module.combat.TriggerBot;
+import ru.bogempty.client.module.hud.ArmorHud;
 import ru.bogempty.client.module.hud.ArrayListModule;
 import ru.bogempty.client.module.hud.InfoHud;
+import ru.bogempty.client.module.hud.Keystrokes;
+import ru.bogempty.client.module.hud.TargetHud;
 import ru.bogempty.client.module.hud.Watermark;
 import ru.bogempty.client.module.movement.AutoSprint;
 import ru.bogempty.client.module.movement.ShiftTap;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.FullBright;
+import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,23 +23,41 @@ public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
 
     public ModuleManager() {
+        // Combat
+        modules.add(new TriggerBot());
+
         // Movement
         modules.add(new AutoSprint());
         modules.add(new ShiftTap());
 
         // Visual
         modules.add(new FullBright());
+        modules.add(new Zoom());
         modules.add(new CustomCrosshair());
 
         // HUD
         modules.add(new Watermark());
         modules.add(new InfoHud());
+        modules.add(new Keystrokes());
+        modules.add(new TargetHud());
+        modules.add(new ArmorHud());
         modules.add(new ArrayListModule());
     }
 
     public void onTick() {
         for (Module m : modules) {
             if (m.isEnabled()) m.onTick();
+        }
+    }
+
+    public void handleKeys(MinecraftClient mc) {
+        if (mc.currentScreen != null) return;
+        long handle = mc.getWindow().getHandle();
+        for (Module m : modules) {
+            if (m.key == -1) continue;
+            boolean pressed = InputUtil.isKeyPressed(handle, m.key);
+            if (pressed && !m.keyDown) m.toggle();
+            m.keyDown = pressed;
         }
     }
 
