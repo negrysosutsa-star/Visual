@@ -3,15 +3,17 @@
   "id": "bogempty",
   "version": "${version}",
   "name": "BogEmpty Client",
-  "description": "BogEmpty client mod",
+  "description": "Beautiful client-side mod with Pulse-like GUI",
   "authors": ["BogEmpty"],
   "license": "MIT",
   "environment": "client",
   "entrypoints": {
-    "client": ["ru.bogempty.BogEmptyClient"]
+    "client": [
+      "ru.bogempty.client.BogEmptyClient"
+    ]
   },
   "depends": {
-    "fabricloader": ">=0.16.14",
+    "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.4",
     "java": ">=21",
     "fabric-api": "*"
