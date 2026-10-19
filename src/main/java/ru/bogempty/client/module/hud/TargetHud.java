@@ -37,13 +37,16 @@ public class TargetHud extends Module {
         float ratio = Math.max(0f, Math.min(1f, hp / max));
         bar += (ratio - bar) * 0.15f;
 
+        String name = target.getName().getString();
+        String hpText = String.format(Locale.ROOT, "%.1f", hp);
+
         int x = mc.getWindow().getScaledWidth() / 2 + 24;
         int y = mc.getWindow().getScaledHeight() / 2 + 24;
-        int w = 130, h = 34;
+        int w = Math.max(130, Fonts.width(name) + Fonts.width(hpText) + 28);
+        int h = 34;
 
         RenderUtils.drawRoundedRect(c, x, y, x + w, y + h, 6, 0xAA0C0C14);
-        Fonts.draw(c, target.getName().getString(), x + 8, y + 6, 0xFFFFFFFF);
-        String hpText = String.format(Locale.ROOT, "%.1f", hp);
+        Fonts.draw(c, name, x + 8, y + 6, 0xFFFFFFFF);
         Fonts.draw(c, hpText, x + w - 8 - Fonts.width(hpText), y + 6, 0xFFB8B8D0);
 
         int bx = x + 8, bw = w - 16, by = y + 22;
