@@ -1,10 +1,10 @@
 package ru.bogempty.client.module;
 
 public enum Category {
+    COMBAT("Combat"),
     MOVEMENT("Movement"),
     VISUAL("Visual"),
-    HUD("HUD"),
-    CLIENT("Client");
+    HUD("HUD");
 
     public final String name;
 
