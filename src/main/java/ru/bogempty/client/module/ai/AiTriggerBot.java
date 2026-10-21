@@ -13,6 +13,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import ru.bogempty.client.ai.AiBrain;
+import ru.bogempty.client.friend.FriendManager;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
 import ru.bogempty.client.render.Fonts;
@@ -60,6 +61,8 @@ public class AiTriggerBot extends Module {
             "Счётчик обучения по ситуациям, точность и причина, почему бот сейчас не бьёт.");
     private final Setting.Bool reset = add(new Setting.Bool("Сбросить обучение", false),
             "Включи, чтобы стереть весь опыт и начать заново (переключатель вернётся сам).");
+    private final Setting.Bool ignoreFriends = add(new Setting.Bool("Игнор друзей", true),
+            "Не бить игроков из списка .friend");
 
     private final AiBrain brain = AiBrain.get();
 
@@ -99,7 +102,6 @@ public class AiTriggerBot extends Module {
         brain.save();
     }
 
-    /** Земля / подъём / падение / "нельзя критовать" (вода, лестница, транспорт, слепота, полёт). */
     private int situation(ClientPlayerEntity p) {
         boolean noCrit = p.isTouchingWater() || p.isClimbing() || p.hasVehicle() || p.isGliding()
                 || p.getAbilities().flying || p.hasStatusEffect(StatusEffects.BLINDNESS);
@@ -167,7 +169,6 @@ public class AiTriggerBot extends Module {
         double dist = mc.crosshairTarget.getPos().distanceTo(p.getEyePos());
         double[] x = features(p, t, dist, sit);
 
-        // твой удар: пример для той ситуации, в которой ты был ДО удара
         if (userClick) {
             if (learnUser && lastFeat != null) {
                 if (imi > 0) brain.train(lastSit, lastFeat, 1.0, imi, lrv);
@@ -186,7 +187,6 @@ public class AiTriggerBot extends Module {
 
         if (!fight) {
             why = "Режим: только обучение";
-            // ждёт вместе с тобой: когда ты в бою и не бьёшь, это пример "не бить сейчас"
             if (learnUser && imi > 0 && tick - lastUserHit < 40 && tick - lastUserHit > 2) {
                 brain.train(sit, x, 0.0, 0.05 * imi, lrv);
             }
@@ -205,7 +205,6 @@ public class AiTriggerBot extends Module {
         double cdv = x[1];
         boolean land = sit == AiBrain.FALL && x[5] > 0.5;
 
-        // авто-прыжок: на земле заряженным прыгаем и бьём критом на спуске
         if (autoJump.get() && sit == AiBrain.GROUND) {
             if (cdv >= 0.85 && !jumpHeld && !mc.options.jumpKey.isPressed()) {
                 mc.options.jumpKey.setPressed(true);
@@ -234,7 +233,6 @@ public class AiTriggerBot extends Module {
             return;
         }
 
-        // минимальный заряд: для крита нужно больше 90%, иначе твой привычный
         double gate;
         if (sit == AiBrain.FALL) {
             gate = 0.91;
@@ -253,7 +251,7 @@ public class AiTriggerBot extends Module {
             if (sit == AiBrain.FALL) forced = cdv >= 0.93 && x[4] > 0.1;
             else if (sit != AiBrain.RISE) forced = cdv >= 0.97;
         }
-        if (land) forced = true; // последний шанс на крит
+        if (land) forced = true;
 
         double thr = threshold.get() / 100.0;
         if (lastProb < thr && !forced) {
@@ -275,7 +273,6 @@ public class AiTriggerBot extends Module {
             return;
         }
 
-        // крит невозможен со спринтом: отпускаем его перед ударом и говорим об этом серверу
         if (sit == AiBrain.FALL && dropSprint.get() && p.isSprinting()) {
             p.setSprinting(false);
             if (mc.getNetworkHandler() != null) {
@@ -299,7 +296,6 @@ public class AiTriggerBot extends Module {
         pHurt0 = t.hurtTime;
     }
 
-    // итог собственного удара: попал ли, с полным ли зарядом, был ли это крит
     private void evalPending(boolean learnSelf, double lrv) {
         if (pTarget == null || pFeat == null) return;
         long age = tick - pTick;
@@ -348,6 +344,13 @@ public class AiTriggerBot extends Module {
             return null;
         }
         boolean isPlayer = le instanceof PlayerEntity;
+        if (isPlayer && ignoreFriends.get()) {
+            String name = le.getName().getString();
+            if (FriendManager.isFriend(name)) {
+                why = "Друг: " + name;
+                return null;
+            }
+        }
         if (targets.is("Игроки") && !isPlayer) {
             why = "Цель не игрок (смени «Цели»)";
             return null;
@@ -394,7 +397,6 @@ public class AiTriggerBot extends Module {
         }
     }
 
-    // ---------- панель на экране ----------
     @Override
     public void onRender2D(DrawContext c, float tickDelta) {
         if (!hud.get() || mc.player == null) return;
