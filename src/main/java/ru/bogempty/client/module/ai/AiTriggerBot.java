@@ -2,6 +2,7 @@ package ru.bogempty.client.module.ai;
 
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.effect.StatusEffects;
@@ -16,24 +17,31 @@ import ru.bogempty.client.module.Module;
 import ru.bogempty.client.render.Fonts;
 import ru.bogempty.client.render.RenderUtils;
 import ru.bogempty.client.setting.Setting;
+import ru.bogempty.client.util.SprintResetter;
 
 import java.util.concurrent.ThreadLocalRandom;
 
 public class AiTriggerBot extends Module {
     private final Setting.Mode mode = add(new Setting.Mode("Режим", "Бой + обучение", "Только бой", "Только обучение"),
             "Бой + обучение: бьёт сам и учится на твоих ударах и на итогах своих. Только бой: бьёт без обучения. Только обучение: сам не бьёт, учится на тебе.");
-    private final Setting.Mode targets = add(new Setting.Mode("Цели", "Игроки", "Мобы", "Все"),
+    private final Setting.Mode targets = add(new Setting.Mode("Цели", "Все", "Игроки", "Мобы"),
             "Каких существ атаковать.");
     private final Setting.Mode crits = add(new Setting.Mode("Криты", "Умные", "Только криты", "Не ждать"),
-            "Умные: решает модель. Только криты: бьёт лишь при падении. Не ждать: бьёт как только готов.");
+            "Умные: решает модель. Только криты: бьёт лишь при падении (нужен прыжок). Не ждать: бьёт как только готов.");
     private final Setting.Num reach = add(new Setting.Num("Дистанция", 3.0, 1.5, 3.0, 0.1),
             "Максимальная дистанция удара.");
     private final Setting.Num threshold = add(new Setting.Num("Порог уверенности %", 60, 30, 95, 1),
             "Бьёт, только если модель уверена не меньше этого процента. Выше — реже, но точнее.");
     private final Setting.Num minCd = add(new Setting.Num("Мин. заряд %", 70, 30, 100, 1),
             "Жёсткий минимум заряда оружия, ниже которого бот не бьёт.");
+    private final Setting.Bool safety = add(new Setting.Bool("Страховка", true),
+            "При почти полном заряде бьёт даже если модель сомневается. Не даёт обучению «заглушить» бота.");
     private final Setting.Bool autoJump = add(new Setting.Bool("Авто-прыжок", false),
             "Прыгает сам при заряженном оружии и бьёт на спуске (крит).");
+    private final Setting.Mode sprintMode = add(new Setting.Mode("Сброс спринта", "После удара", "Выкл"),
+            "После удара ненадолго отпускает «вперёд» (W-tap), чтобы спринт начался заново.");
+    private final Setting.Num sprintTicks = add(new Setting.Num("Пауза сброса, тики", 1, 1, 3, 1),
+            "На сколько тиков отпустить «вперёд» при сбросе спринта.");
     private final Setting.Num delayMin = add(new Setting.Num("Реакция от, мс", 0, 0, 200, 5),
             "Минимальная задержка реакции перед ударом.");
     private final Setting.Num delayMax = add(new Setting.Num("Реакция до, мс", 40, 0, 300, 5),
@@ -45,7 +53,7 @@ public class AiTriggerBot extends Module {
     private final Setting.Bool selfLearn = add(new Setting.Bool("Самообучение", true),
             "Бот оценивает свои удары (попал, полный заряд, крит) и учится на них.");
     private final Setting.Bool hud = add(new Setting.Bool("Панель статистики", true),
-            "Показывать на экране опыт, точность и уверенность модели.");
+            "Показывать на экране счётчик обучения, точность и причину, почему бот сейчас не бьёт.");
     private final Setting.Bool reset = add(new Setting.Bool("Сбросить обучение", false),
             "Включи, чтобы стереть весь опыт и начать заново (переключатель вернётся сам).");
 
@@ -59,11 +67,17 @@ public class AiTriggerBot extends Module {
     private boolean armed = false;
     private long fireAt = 0L;
     private boolean jumpHeld = false;
+    private boolean landedSeen = false;
+    private String why = "—";
 
     private LivingEntity pTarget = null;
     private double[] pFeat = null;
     private long pTick = 0L;
     private int pHurt0 = 0;
+
+    // для счётчика на экране
+    private long shownSamples = -1L;
+    private float flash = 0f;
 
     public AiTriggerBot() {
         super("AiTriggerBot", "Триггербот с самообучением", Category.AI);
@@ -86,6 +100,7 @@ public class AiTriggerBot extends Module {
             brain.reset();
             lastFeat = null;
             pTarget = null;
+            landedSeen = false;
         }
 
         ClientPlayerEntity p = mc.player;
@@ -93,6 +108,7 @@ public class AiTriggerBot extends Module {
             releaseJump();
             lastFeat = null;
             pTarget = null;
+            why = "Нет мира";
             return;
         }
 
@@ -112,6 +128,7 @@ public class AiTriggerBot extends Module {
             releaseJump();
             lastFeat = null;
             armed = false;
+            why = "Открыт экран";
             return;
         }
 
@@ -138,6 +155,7 @@ public class AiTriggerBot extends Module {
             }
             lastUserHit = tick;
             lastFeat = x;
+            why = "Ты бьёшь сам";
             return;
         }
 
@@ -145,6 +163,7 @@ public class AiTriggerBot extends Module {
         lastFeat = x;
 
         if (!fight) {
+            why = "Режим: только обучение";
             // ждёт вместе с тобой: учится, когда ты в бою, но не бьёшь
             if (learnUser && imi > 0 && tick - lastUserHit < 40 && tick - lastUserHit > 2) {
                 brain.train(x, 0.0, 0.05 * imi, lrv);
@@ -154,6 +173,7 @@ public class AiTriggerBot extends Module {
 
         if (mc.interactionManager.isBreakingBlock() || p.isUsingItem()) {
             armed = false;
+            why = "Занят (блок/предмет)";
             return;
         }
 
@@ -165,22 +185,34 @@ public class AiTriggerBot extends Module {
                 mc.options.jumpKey.setPressed(true);
                 jumpHeld = true;
                 armed = false;
+                why = "Прыгаю ради крита";
                 return;
             }
             if (jumpHeld && !critReady) {
                 armed = false;
+                why = "Жду падение (крит)";
                 return;
             }
         }
 
         if (crits.is("Только криты") && !critReady && !cantFall) {
             armed = false;
+            why = "Жду падение: прыгни или включи авто-прыжок";
             return;
         }
 
-        boolean ok = x[1] >= minCd.get() / 100.0 && lastProb >= threshold.get() / 100.0;
-        if (!ok) {
+        double need = minCd.get() / 100.0;
+        if (x[1] < need) {
             armed = false;
+            why = "Заряд " + Math.round(x[1] * 100) + "% < " + Math.round(need * 100) + "%";
+            return;
+        }
+
+        boolean forced = safety.get() && x[1] >= 0.97 && t.hurtTime <= 2;
+        double thr = threshold.get() / 100.0;
+        if (lastProb < thr && !forced) {
+            armed = false;
+            why = "Модель не уверена: " + Math.round(lastProb * 100) + "% < " + Math.round(thr * 100) + "%";
             return;
         }
 
@@ -191,13 +223,19 @@ public class AiTriggerBot extends Module {
             int hi = Math.max(lo, (int) delayMax.get());
             fireAt = now + (hi > 0 ? ThreadLocalRandom.current().nextInt(lo, hi + 1) : 0);
         }
-        if (now < fireAt) return;
+        if (now < fireAt) {
+            why = "Реакция…";
+            return;
+        }
 
         mc.interactionManager.attackEntity(p, t);
         p.swingHand(Hand.MAIN_HAND);
         releaseJump();
         armed = false;
         brain.botHits++;
+        why = "Удар!";
+
+        if (sprintMode.is("После удара")) SprintResetter.trigger((int) sprintTicks.get());
 
         pTarget = t;
         pFeat = x.clone();
@@ -213,6 +251,13 @@ public class AiTriggerBot extends Module {
         boolean landed = pTarget.hurtTime > 0 && pHurt0 == 0;
         if (!landed && !dead && age < 8) return;
         if (pHurt0 > 0 && !dead) {
+            pTarget = null;
+            pFeat = null;
+            return;
+        }
+        if (dead || landed) landedSeen = true;
+        // пока ни разу не видели попадание, промахом не считаем (сервер может не показывать урон)
+        if (!landedSeen) {
             pTarget = null;
             pFeat = null;
             return;
@@ -235,14 +280,32 @@ public class AiTriggerBot extends Module {
 
     private LivingEntity findTarget(ClientPlayerEntity p) {
         HitResult hr = mc.crosshairTarget;
-        if (!(hr instanceof EntityHitResult ehr)) return null;
-        if (!(ehr.getEntity() instanceof LivingEntity le)) return null;
-        if (le == p || !le.isAlive() || le instanceof ArmorStandEntity || le.isSpectator()) return null;
+        if (!(hr instanceof EntityHitResult ehr)) {
+            why = "Нет цели в прицеле";
+            return null;
+        }
+        if (!(ehr.getEntity() instanceof LivingEntity le)) {
+            why = "В прицеле не живое существо";
+            return null;
+        }
+        if (le == p || !le.isAlive() || le instanceof ArmorStandEntity || le.isSpectator()) {
+            why = "Цель не подходит";
+            return null;
+        }
         boolean isPlayer = le instanceof PlayerEntity;
-        if (targets.is("Игроки") && !isPlayer) return null;
-        if (targets.is("Мобы") && !(le instanceof MobEntity)) return null;
+        if (targets.is("Игроки") && !isPlayer) {
+            why = "Цель не игрок (смени «Цели»)";
+            return null;
+        }
+        if (targets.is("Мобы") && !(le instanceof MobEntity)) {
+            why = "Цель не моб (смени «Цели»)";
+            return null;
+        }
         double d = hr.getPos().distanceTo(p.getEyePos());
-        if (d > reach.get() + 0.05) return null;
+        if (d > reach.get() + 0.05) {
+            why = "Далеко: " + String.format(java.util.Locale.ROOT, "%.1f", d);
+            return null;
+        }
         return le;
     }
 
@@ -276,21 +339,42 @@ public class AiTriggerBot extends Module {
         }
     }
 
+    // ---------- панель на экране ----------
     @Override
     public void onRender2D(DrawContext c, float tickDelta) {
         if (!hud.get() || mc.player == null) return;
+
+        if (brain.samples != shownSamples) {
+            if (brain.samples > shownSamples && shownSamples >= 0) flash = 1f;
+            shownSamples = brain.samples;
+        }
+        flash *= 0.93f;
+
         int x = 8;
-        int y = mc.getWindow().getScaledHeight() / 2 - 44;
-        int w = 132, h = 88;
+        int y = mc.getWindow().getScaledHeight() / 2 - 62;
+        int w = 150, h = 130;
         RenderUtils.drawRoundedRect(c, x, y, x + w, y + h, 6, 0xAA0C0C14);
         Fonts.draw(c, "ИИ ТриггерБот", x + 8, y + 6, 0xFFFFFFFF);
-        Fonts.draw(c, mode.get(), x + 8, y + 18, 0xFF8F86FF);
-        Fonts.draw(c, "Опыт: " + brain.samples + "  (твои: " + brain.userHits + ")", x + 8, y + 30, 0xFFB8B8D0);
-        String acc = (brain.botGood + brain.botBad) == 0 ? "—" : Math.round(brain.accuracy() * 100) + "%";
-        Fonts.draw(c, "Точность: " + acc, x + 8, y + 42, 0xFFB8B8D0);
+        Fonts.draw(c, mode.get(), x + 8, y + 17, 0xFF8F86FF);
 
-        bar(c, x + 8, y + 56, w - 16, brain.maturity(), "Обученность");
-        bar(c, x + 8, y + 72, w - 16, lastProb, "Уверенность");
+        // большой счётчик обучения
+        String big = String.valueOf(brain.samples);
+        MatrixStack ms = c.getMatrices();
+        ms.push();
+        ms.translate(x + 8, y + 30, 0);
+        ms.scale(2.0f, 2.0f, 1f);
+        Fonts.draw(c, big, 0, 0, RenderUtils.lerp(0xFFFFFFFF, 0xFF4CE08A, flash));
+        ms.pop();
+        Fonts.draw(c, "обучений", x + 8 + Fonts.width(big) * 2 + 6, y + 40, 0xFF6E6E86);
+
+        Fonts.draw(c, "Твои удары: " + brain.userHits + "   Свои: " + brain.botHits, x + 8, y + 52, 0xFFB8B8D0);
+        String acc = (brain.botGood + brain.botBad) == 0 ? "—" : Math.round(brain.accuracy() * 100) + "%";
+        Fonts.draw(c, "Точность своих ударов: " + acc, x + 8, y + 63, 0xFFB8B8D0);
+
+        bar(c, x + 8, y + 78, w - 16, brain.maturity(), "Обученность");
+        bar(c, x + 8, y + 94, w - 16, lastProb, "Уверенность");
+
+        Fonts.draw(c, why, x + 8, y + 113, 0xFFE0C070);
     }
 
     private void bar(DrawContext c, int x, int y, int w, double v, String label) {
