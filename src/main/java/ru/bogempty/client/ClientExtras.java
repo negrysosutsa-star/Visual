@@ -1,6 +1,7 @@
 package ru.bogempty.client;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screen.TitleScreen;
@@ -10,6 +11,7 @@ import net.minecraft.text.Text;
 import ru.bogempty.client.ai.AiBrain;
 import ru.bogempty.client.alt.AltManager;
 import ru.bogempty.client.gui.AltManagerScreen;
+import ru.bogempty.client.util.SprintResetter;
 
 public final class ClientExtras {
     private static boolean done = false;
@@ -17,6 +19,9 @@ public final class ClientExtras {
     public static void init() {
         if (done) return;
         done = true;
+
+        // этот тик регистрируется раньше тика модулей: сначала возвращаем клавишу, потом модули могут снова сбросить
+        ClientTickEvents.END_CLIENT_TICK.register(client -> SprintResetter.tick());
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             AiBrain.get().save();
