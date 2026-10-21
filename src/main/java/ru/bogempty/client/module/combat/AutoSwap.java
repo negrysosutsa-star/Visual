@@ -45,8 +45,7 @@ public class AutoSwap extends Module {
             return;
         }
 
-        boolean pressed = key != -1 && GLFW.glfwGetKey(
-                mc.getWindow().getHandle(), key) == GLFW.GLFW_PRESS;
+        boolean pressed = key != -1 && GLFW.glfwGetKey(mc.getWindow().getHandle(), key) == GLFW.GLFW_PRESS;
 
         if (bindSwap.get()) {
             if (!pressed || keyWasDown) {
