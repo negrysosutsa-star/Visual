@@ -101,7 +101,7 @@ public class AiTriggerBot extends Module {
 
     /** Земля / подъём / падение / "нельзя критовать" (вода, лестница, транспорт, слепота, полёт). */
     private int situation(ClientPlayerEntity p) {
-        boolean noCrit = p.isTouchingWater() || p.isClimbing() || p.hasVehicle() || p.isFallFlying()
+        boolean noCrit = p.isTouchingWater() || p.isClimbing() || p.hasVehicle() || p.isGliding()
                 || p.getAbilities().flying || p.hasStatusEffect(StatusEffects.BLINDNESS);
         if (noCrit) return AiBrain.OTHER;
         if (p.isOnGround()) return AiBrain.GROUND;
