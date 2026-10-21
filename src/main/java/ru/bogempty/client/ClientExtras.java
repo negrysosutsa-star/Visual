@@ -4,13 +4,14 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
-import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.text.Text;
+import net.minecraft.class_2561;
+import net.minecraft.class_4185;
+import net.minecraft.class_442;
+import net.minecraft.class_500;
 import ru.bogempty.client.ai.AiBrain;
 import ru.bogempty.client.alt.AltManager;
 import ru.bogempty.client.gui.AltManagerScreen;
+import ru.bogempty.client.gui.BogLoadingOverlay;
 import ru.bogempty.client.util.SprintResetter;
 
 public final class ClientExtras {
@@ -20,8 +21,10 @@ public final class ClientExtras {
         if (done) return;
         done = true;
 
-        // этот тик регистрируется раньше тика модулей: сначала возвращаем клавишу, потом модули могут снова сбросить
-        ClientTickEvents.END_CLIENT_TICK.register(client -> SprintResetter.tick());
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            SprintResetter.tick();
+            BogLoadingOverlay.tryInstall(client);
+        });
 
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
             AiBrain.get().save();
@@ -29,12 +32,12 @@ public final class ClientExtras {
         });
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            if (screen instanceof TitleScreen || screen instanceof MultiplayerScreen) {
+            if (screen instanceof class_442 || screen instanceof class_500) {
                 Screens.getButtons(screen).add(
-                        ButtonWidget.builder(Text.literal("Альт-менеджер"),
-                                        b -> client.setScreen(new AltManagerScreen(screen)))
-                                .dimensions(6, 6, 100, 20)
-                                .build());
+                        class_4185.method_46430(class_2561.method_43470("Альт-менеджер"),
+                                        b -> client.method_1507(new AltManagerScreen(screen)))
+                                .method_46434(6, 6, 100, 20)
+                                .method_46431());
             }
         });
     }
