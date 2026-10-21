@@ -14,12 +14,13 @@ import ru.bogempty.client.module.Module;
 import ru.bogempty.client.render.Fonts;
 import ru.bogempty.client.render.RenderUtils;
 import ru.bogempty.client.setting.Setting;
+import ru.bogempty.client.util.Lang;
 
 import java.util.List;
 
 public class ClickGui extends Screen {
 
-    private static final int W = 340, H = 200, SW = 150;
+    private static final int W = 340, H = 200, SW = 170;
     private static final int CELL_H = 26, GAP = 6;
     private static final int ACCENT = 0xFF7C6CFF;
     private static final int PANEL = 0xEE0C0C14;
@@ -27,6 +28,7 @@ public class ClickGui extends Screen {
     private static final int WHITE = 0xFFFFFFFF;
     private static final int DIM = 0xFF5E5E75;
     private static final int OFF = 0xFF2A2A3A;
+    private static final String ALT_LABEL = "Альт-менеджер";
 
     private float anim = 0f;
     private float scroll = 0f, scrollTarget = 0f;
@@ -75,7 +77,7 @@ public class ClickGui extends Screen {
     private int cy(int i) { return gy() + (i / 2) * (CELL_H + GAP) - Math.round(scroll); }
 
     private int sTop() { return top() + 26; }
-    private int sViewH() { return H - 26 - 26; }
+    private int sViewH() { return H - 26 - 40; }
 
     private boolean in(int mx, int my, int x1, int y1, int x2, int y2) {
         return mx >= x1 && mx < x2 && my >= y1 && my < y2;
@@ -111,8 +113,14 @@ public class ClickGui extends Screen {
     private int[] catRect(int i) {
         Category[] cats = Category.values();
         int x = px() + 14;
-        for (int k = 0; k < i; k++) x += Fonts.width(cats[k].name) + 18;
-        return new int[]{x, top() + 10, x + Fonts.width(cats[i].name), top() + 21};
+        for (int k = 0; k < i; k++) x += Fonts.width(Lang.t(cats[k].name)) + 18;
+        return new int[]{x, top() + 10, x + Fonts.width(Lang.t(cats[i].name)), top() + 21};
+    }
+
+    private int[] altRect() {
+        int w = Fonts.width(ALT_LABEL);
+        int x = px() + W - 14 - w;
+        return new int[]{x, top() + 10, x + w, top() + 21};
     }
 
     private static String keyName(int k) {
@@ -151,12 +159,17 @@ public class ClickGui extends Screen {
             boolean sel = cats[i] == current;
             boolean hov = in(mx, my, r[0], r[1], r[2], r[3]);
             int col = sel ? WHITE : (hov ? 0xFFB0B0C8 : DIM);
-            Fonts.draw(ctx, cats[i].name, r[0], r[1], RenderUtils.alpha(col, a));
+            Fonts.draw(ctx, Lang.t(cats[i].name), r[0], r[1], RenderUtils.alpha(col, a));
             if (sel) RenderUtils.drawRect(ctx, r[0], r[3] + 2, r[2], r[3] + 3, RenderUtils.alpha(ACCENT, a));
             if (i < cats.length - 1) Fonts.draw(ctx, "/", r[2] + 7, r[1], RenderUtils.alpha(0xFF3A3A4C, a));
         }
-        String hint = "RMB settings  MMB bind";
-        Fonts.draw(ctx, hint, x0 + W - 14 - Fonts.width(hint), y0 + 10, RenderUtils.alpha(0xFF3F3F52, a));
+
+        int[] ar = altRect();
+        boolean altHov = in(mx, my, ar[0] - 2, ar[1] - 2, ar[2] + 2, ar[3] + 2);
+        Fonts.draw(ctx, ALT_LABEL, ar[0], ar[1], RenderUtils.alpha(altHov ? 0xFFB8B0FF : 0xFF8F86FF, a));
+
+        String hint = "ЛКМ — вкл/выкл   ПКМ — настройки   СКМ — бинд";
+        Fonts.draw(ctx, hint, x0 + (W - Fonts.width(hint)) / 2, y0 + H + 8, RenderUtils.alpha(0xFF4A4A60, a));
 
         List<Module> list = BogEmptyClient.moduleManager.getModulesByCategory(current);
         scrollTarget = Math.max(0, Math.min(scrollTarget, maxScroll(list.size())));
@@ -176,7 +189,7 @@ public class ClickGui extends Screen {
             }
 
             int nameCol = RenderUtils.lerp(DIM, 0xFFF0F0FF, m.anim);
-            Fonts.draw(ctx, m.name, x + 9, y + (CELL_H - 9) / 2, RenderUtils.alpha(nameCol, a));
+            Fonts.draw(ctx, Lang.t(m.name), x + 9, y + (CELL_H - 9) / 2, RenderUtils.alpha(nameCol, a));
 
             int tw = 22, th = 10;
             int tx = x + w - tw - 9, ty = y + (CELL_H - th) / 2;
@@ -202,10 +215,10 @@ public class ClickGui extends Screen {
 
         RenderUtils.drawRoundedRect(ctx, sx - 1, sy - 1, sx + SW + 1, sy + H + 1, 9, RenderUtils.alpha(BORDER, a));
         RenderUtils.drawRoundedRect(ctx, sx, sy, sx + SW, sy + H, 8, RenderUtils.alpha(PANEL, a));
-        Fonts.draw(ctx, m.name, sx + 10, sy + 9, RenderUtils.alpha(WHITE, a));
+        Fonts.draw(ctx, Lang.t(m.name), sx + 10, sy + 9, RenderUtils.alpha(WHITE, a));
 
         if (m.settings.isEmpty()) {
-            Fonts.draw(ctx, "No settings", sx + 10, sy + 32, RenderUtils.alpha(DIM, a));
+            Fonts.draw(ctx, Lang.t("No settings"), sx + 10, sy + 32, RenderUtils.alpha(DIM, a));
             return;
         }
 
@@ -235,8 +248,8 @@ public class ClickGui extends Screen {
 
         RenderUtils.drawRect(ctx, sx + 10, vb + 2, sx + SW - 10, vb + 3, RenderUtils.alpha(0x22FFFFFF, a));
         if (descText != null && !descText.isEmpty()) {
-            List<OrderedText> lines = textRenderer.wrapLines(Fonts.t(descText), SW - 20);
-            for (int i = 0; i < Math.min(2, lines.size()); i++) {
+            List<OrderedText> lines = textRenderer.wrapLines(Fonts.t(Lang.t(descText)), SW - 20);
+            for (int i = 0; i < Math.min(3, lines.size()); i++) {
                 ctx.drawText(textRenderer, lines.get(i), sx + 10, vb + 6 + i * 10,
                         RenderUtils.alpha(0xFF6E6E86, a), false);
             }
@@ -248,14 +261,14 @@ public class ClickGui extends Screen {
         int accent = RenderUtils.alpha(0xFF8F86FF, a);
 
         if (s instanceof Setting.Bool b) {
-            Fonts.draw(ctx, b.name, sx + 10, y + 5, label);
+            Fonts.draw(ctx, Lang.t(b.name), sx + 10, y + 5, label);
             int tw = 18, th = 9;
             int tx = sx + SW - 14 - tw, ty = y + 4;
             RenderUtils.drawRoundedRect(ctx, tx, ty, tx + tw, ty + th, 4, RenderUtils.alpha(b.value ? ACCENT : OFF, a));
             int kx = b.value ? tx + tw - th + 1 : tx + 1;
             RenderUtils.drawRoundedRect(ctx, kx, ty + 1, kx + th - 2, ty + th - 1, 3, RenderUtils.alpha(WHITE, a));
         } else if (s instanceof Setting.Num n) {
-            Fonts.draw(ctx, n.name, sx + 10, y + 2, label);
+            Fonts.draw(ctx, Lang.t(n.name), sx + 10, y + 2, label);
             String v = n.format();
             Fonts.draw(ctx, v, sx + SW - 14 - Fonts.width(v), y + 2, accent);
             int x0 = sx + 10, w = SW - 24, ty = y + 17;
@@ -265,11 +278,11 @@ public class ClickGui extends Screen {
             RenderUtils.drawRoundedRect(ctx, x0, ty, x0 + Math.max(2, fw), ty + 3, 1, RenderUtils.alpha(ACCENT, a));
             RenderUtils.drawRoundedRect(ctx, x0 + fw - 3, ty - 2, x0 + fw + 3, ty + 5, 3, RenderUtils.alpha(WHITE, a));
         } else if (s instanceof Setting.Mode md) {
-            Fonts.draw(ctx, md.name, sx + 10, y + 5, label);
-            String v = md.get();
+            Fonts.draw(ctx, Lang.t(md.name), sx + 10, y + 5, label);
+            String v = Lang.t(md.get());
             Fonts.draw(ctx, v, sx + SW - 14 - Fonts.width(v), y + 5, accent);
         } else if (s instanceof Setting.Multi mu) {
-            Fonts.draw(ctx, mu.name, sx + 10, y + 5, label);
+            Fonts.draw(ctx, Lang.t(mu.name), sx + 10, y + 5, label);
             int cnt = 0;
             for (boolean b : mu.on) if (b) cnt++;
             String v = cnt + "/" + mu.on.length + (mu.expanded ? "  -" : "  +");
@@ -280,7 +293,7 @@ public class ClickGui extends Screen {
                     boolean on = mu.on[i];
                     RenderUtils.drawRoundedRect(ctx, sx + 14, oy + 2, sx + 22, oy + 10, 2,
                             RenderUtils.alpha(on ? ACCENT : OFF, a));
-                    Fonts.draw(ctx, mu.options[i], sx + 28, oy + 2,
+                    Fonts.draw(ctx, Lang.t(mu.options[i]), sx + 28, oy + 2,
                             RenderUtils.alpha(on ? 0xFFE8E8FF : DIM, a));
                 }
             }
@@ -299,6 +312,12 @@ public class ClickGui extends Screen {
         int mx = (int) dmx, my = (int) dmy;
         Module wasBinding = binding;
         binding = null;
+
+        int[] ar = altRect();
+        if (button == 0 && in(mx, my, ar[0] - 2, ar[1] - 2, ar[2] + 2, ar[3] + 2)) {
+            if (client != null) client.setScreen(new AltManagerScreen(this));
+            return true;
+        }
 
         Category[] cats = Category.values();
         for (int i = 0; i < cats.length; i++) {
