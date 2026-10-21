@@ -1,11 +1,11 @@
 package ru.bogempty.client.module;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 import ru.bogempty.client.setting.Setting;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
 
 public abstract class Module {
     public final String name;
