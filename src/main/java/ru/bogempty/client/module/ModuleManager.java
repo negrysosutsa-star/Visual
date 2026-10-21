@@ -22,9 +22,9 @@ import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.class_310;
-import net.minecraft.class_332;
-import net.minecraft.class_3675;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.util.InputUtil;
 
 public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
@@ -67,18 +67,18 @@ public class ModuleManager {
         }
     }
 
-    public void handleKeys(class_310 mc) {
-        if (mc.field_1755 != null) return;
-        long handle = mc.method_22683().method_4490();
+    public void handleKeys(MinecraftClient mc) {
+        if (mc.currentScreen != null) return;
+        long handle = mc.getWindow().getHandle();
         for (Module m : modules) {
             if (m.key == -1) continue;
-            boolean pressed = class_3675.method_15987(handle, m.key);
+            boolean pressed = InputUtil.isKeyPressed(handle, m.key);
             if (pressed && !m.keyDown) m.toggle();
             m.keyDown = pressed;
         }
     }
 
-    public void onRender2D(class_332 context, float tickDelta) {
+    public void onRender2D(DrawContext context, float tickDelta) {
         for (Module m : modules) {
             if (m.isEnabled()) m.onRender2D(context, tickDelta);
         }
