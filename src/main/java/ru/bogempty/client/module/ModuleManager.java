@@ -2,6 +2,7 @@ package ru.bogempty.client.module;
 
 import ru.bogempty.client.ClientExtras;
 import ru.bogempty.client.module.ai.AiTriggerBot;
+import ru.bogempty.client.module.ai.NeuralAimAssist;
 import ru.bogempty.client.module.combat.AutoSwap;
 import ru.bogempty.client.module.combat.AutoTotem;
 import ru.bogempty.client.module.combat.TriggerBot;
@@ -57,6 +58,7 @@ public class ModuleManager {
 
         // Ai
         modules.add(new AiTriggerBot());
+        modules.add(new NeuralAimAssist());
 
         ClientExtras.init();
     }
