@@ -5,19 +5,14 @@ import ru.bogempty.client.module.Module;
 import ru.bogempty.client.setting.Setting;
 
 import java.util.concurrent.ThreadLocalRandom;
-import net.minecraft.class_1657;
-import net.minecraft.class_1713;
-import net.minecraft.class_1792;
-import net.minecraft.class_1799;
-import net.minecraft.class_1802;
-import net.minecraft.class_746;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.screen.slot.SlotActionType;
 import org.lwjgl.glfw.GLFW;
 
-/**
- * Быстрый свап предметов.
- * Режимы: сфера↔сфера, тотем↔тотем, сфера↔тотем.
- * Silent + небольшая задержка под FunTime.
- */
 public class AutoSwap extends Module {
 
     private final Setting.Mode mode = add(new Setting.Mode("Mode",
@@ -42,8 +37,8 @@ public class AutoSwap extends Module {
 
     @Override
     public void onTick() {
-        class_746 p = mc.field_1724;
-        if (p == null || mc.field_1761 == null || mc.field_1755 != null) return;
+        ClientPlayerEntity p = mc.player;
+        if (p == null || mc.interactionManager == null || mc.currentScreen != null) return;
 
         if (cooldown > 0) {
             cooldown--;
@@ -51,7 +46,7 @@ public class AutoSwap extends Module {
         }
 
         boolean pressed = key != -1 && GLFW.glfwGetKey(
-                mc.method_22683().method_4490(), key) == GLFW.GLFW_PRESS;
+                mc.getWindow().getHandle(), key) == GLFW.GLFW_PRESS;
 
         if (bindSwap.get()) {
             if (!pressed || keyWasDown) {
@@ -67,27 +62,24 @@ public class AutoSwap extends Module {
         cooldown = (int) delay.get() + ThreadLocalRandom.current().nextInt(0, 2);
     }
 
-    private boolean shouldAuto(class_746 p) {
-        class_1799 main = p.method_6047();
-        class_1799 off = p.method_6079();
+    private boolean shouldAuto(ClientPlayerEntity p) {
+        ItemStack main = p.getMainHandStack();
+        ItemStack off = p.getOffHandStack();
         return switch (mode.get()) {
-            case "Crystal to Crystal" -> !main.method_31574(class_1802.field_8301)
-                    && has(p, class_1802.field_8301);
-            case "Totem to Totem" -> !off.method_31574(class_1802.field_8288)
-                    && has(p, class_1802.field_8288);
-            case "Crystal to Totem" -> main.method_31574(class_1802.field_8301)
-                    && has(p, class_1802.field_8288);
+            case "Crystal to Crystal" -> !main.isOf(Items.END_CRYSTAL) && has(p, Items.END_CRYSTAL);
+            case "Totem to Totem" -> !off.isOf(Items.TOTEM_OF_UNDYING) && has(p, Items.TOTEM_OF_UNDYING);
+            case "Crystal to Totem" -> main.isOf(Items.END_CRYSTAL) && has(p, Items.TOTEM_OF_UNDYING);
             default -> false;
         };
     }
 
-    private void doSwap(class_746 p) {
+    private void doSwap(ClientPlayerEntity p) {
         switch (mode.get()) {
-            case "Crystal to Crystal" -> swapItem(p, class_1802.field_8301, false);
-            case "Totem to Totem" -> swapItem(p, class_1802.field_8288, true);
+            case "Crystal to Crystal" -> swapItem(p, Items.END_CRYSTAL, false);
+            case "Totem to Totem" -> swapItem(p, Items.TOTEM_OF_UNDYING, true);
             case "Crystal to Totem" -> {
-                if (!p.method_6079().method_31574(class_1802.field_8288)) {
-                    int t = find(p, class_1802.field_8288);
+                if (!p.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING)) {
+                    int t = find(p, Items.TOTEM_OF_UNDYING);
                     if (t != -1) clickSwap(t, 45);
                 }
             }
@@ -95,40 +87,40 @@ public class AutoSwap extends Module {
         }
     }
 
-    private void swapItem(class_746 p, class_1792 item, boolean toOffhand) {
-        int targetSlot = toOffhand ? 45 : p.method_31548().field_7545 + 36;
-        class_1799 cur = toOffhand ? p.method_6079() : p.method_6047();
-        if (cur.method_31574(item)) return;
+    private void swapItem(ClientPlayerEntity p, Item item, boolean toOffhand) {
+        int targetSlot = toOffhand ? 45 : p.getInventory().selectedSlot + 36;
+        ItemStack cur = toOffhand ? p.getOffHandStack() : p.getMainHandStack();
+        if (cur.isOf(item)) return;
         int from = find(p, item);
         if (from == -1) return;
         clickSwap(from, targetSlot);
     }
 
-    private int find(class_1657 p, class_1792 item) {
+    private int find(PlayerEntity p, Item item) {
         int start = preferHotbar.get() ? 0 : 9;
         int end = preferHotbar.get() ? 9 : 36;
         for (int i = start; i < end; i++) {
-            if (p.method_31548().method_5438(i).method_31574(item))
+            if (p.getInventory().getStack(i).isOf(item))
                 return i < 9 ? i + 36 : i;
         }
         for (int i = 0; i < 36; i++) {
-            if (p.method_31548().method_5438(i).method_31574(item))
+            if (p.getInventory().getStack(i).isOf(item))
                 return i < 9 ? i + 36 : i;
         }
         return -1;
     }
 
-    private boolean has(class_1657 p, class_1792 item) {
+    private boolean has(PlayerEntity p, Item item) {
         return find(p, item) != -1;
     }
 
     private void clickSwap(int from, int to) {
-        if (mc.field_1761 == null || mc.field_1724 == null) return;
-        int sync = mc.field_1724.field_7512.field_7763;
-        mc.field_1761.method_2906(sync, from, 0, class_1713.field_7790, mc.field_1724);
-        mc.field_1761.method_2906(sync, to, 0, class_1713.field_7790, mc.field_1724);
-        if (!mc.field_1724.field_7512.method_34255().method_7960()) {
-            mc.field_1761.method_2906(sync, from, 0, class_1713.field_7790, mc.field_1724);
+        if (mc.interactionManager == null || mc.player == null) return;
+        int sync = mc.player.currentScreenHandler.syncId;
+        mc.interactionManager.clickSlot(sync, from, 0, SlotActionType.PICKUP, mc.player);
+        mc.interactionManager.clickSlot(sync, to, 0, SlotActionType.PICKUP, mc.player);
+        if (!mc.player.currentScreenHandler.getCursorStack().isEmpty()) {
+            mc.interactionManager.clickSlot(sync, from, 0, SlotActionType.PICKUP, mc.player);
         }
     }
 }
