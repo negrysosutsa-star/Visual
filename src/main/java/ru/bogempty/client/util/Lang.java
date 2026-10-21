@@ -19,6 +19,8 @@ public final class Lang {
 
         // модули
         p("TriggerBot", "ТриггерБот");
+        p("AutoTotem", "АвтоТотем");
+        p("AutoSwap", "АвтоСвап");
         p("AutoSprint", "Авто-спринт");
         p("ShiftTap", "ШифтТап");
         p("FullBright", "Яркость");
@@ -34,7 +36,7 @@ public final class Lang {
         p("ArrayList", "Список модулей");
         p("AiTriggerBot", "ИИ ТриггерБот");
 
-        // TriggerBot: настройки
+        // TriggerBot
         p("Mode", "Режим");
         p("Targets", "Цели");
         p("Conditions", "Условия");
@@ -47,7 +49,6 @@ public final class Lang {
         p("Skip water jump", "Пропуск прыжка из воды");
         p("Auto jump", "Авто-прыжок");
         p("Random delay", "Случайная задержка");
-        // TriggerBot: значения
         p("Smart", "Умный");
         p("Only crits", "Только криты");
         p("Players", "Игроки");
@@ -59,14 +60,33 @@ public final class Lang {
         p("Invisible", "Невидимые");
         p("Only in armor", "Только в броне");
 
-        // Прицел, Зум
+        // AutoTotem
+        p("Health", "Здоровье");
+        p("Delay min", "Задержка мин");
+        p("Delay max", "Задержка макс");
+        p("Offhand only", "Только оффхенд");
+        p("Silent", "Тихий");
+        p("Predict pop", "Предсказывать поп");
+        p("Legit", "Легит");
+        p("Strict", "Строгий");
+
+        // AutoSwap
+        p("Crystal to Crystal", "Сфера на сферу");
+        p("Totem to Totem", "Тотем на тотем");
+        p("Crystal to Totem", "Сфера на тотем");
+        p("On key", "По клавише");
+        p("Delay", "Задержка");
+        p("Prefer hotbar", "Сначала хотбар");
+
+        // прочее
         p("Size", "Размер");
         p("Gap", "Зазор");
         p("Thickness", "Толщина");
         p("Center dot", "Точка в центре");
         p("FOV", "Угол обзора");
+        p("No settings", "Нет настроек");
 
-        // описания TriggerBot
+        // описания
         p("Smart: crit in the air, normal hit when standing. Only crits: hit only while falling.",
                 "Умный: крит в воздухе, обычный удар на земле. Только криты: бьёт только во время падения.");
         p("Which entities to attack.", "Каких существ атаковать.");
@@ -86,8 +106,26 @@ public final class Lang {
                 "Прыгать самому, когда оружие заряжено, и бить на спуске.");
         p("Random extra delay before a hit, in ms.", "Случайная добавочная задержка перед ударом, в мс.");
 
-        // интерфейс
-        p("No settings", "Нет настроек");
+        p("Puts a totem into offhand when low on health",
+                "Кладёт тотем в оффхенд при низком здоровье");
+        p("Swaps crystals and totems according to mode",
+                "Меняет сферы и тотемы по выбранному режиму");
+        p("Swap when health is at or below this value.",
+                "Свап, когда здоровье меньше или равно этому значению.");
+        p("Minimum ticks before swap.", "Минимальная задержка в тиках перед свапом.");
+        p("Maximum ticks before swap.", "Максимальная задержка в тиках перед свапом.");
+        p("Put totem only into offhand.", "Класть тотем только в оффхенд.");
+        p("Do not open inventory screen.", "Не открывать экран инвентаря.");
+        p("Also swap after recent hard damage.",
+                "Также свапать после недавнего сильного урона.");
+        p("Legit: random delay. Strict: minimal delay for hard situations.",
+                "Легит: случайная задержка. Строгий: минимальная задержка.");
+        p("What to swap between mainhand and offhand / inventory.",
+                "Что менять между главной рукой, оффхендом и инвентарём.");
+        p("Swap only when the module key is pressed (toggle still enables the module).",
+                "Свап только по нажатию клавиши модуля.");
+        p("Ticks between clicks.", "Тики между кликами.");
+        p("Search hotbar first.", "Сначала искать в хотбаре.");
     }
 
     public static String t(String s) {
