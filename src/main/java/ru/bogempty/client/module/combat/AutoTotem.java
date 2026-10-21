@@ -5,17 +5,12 @@ import ru.bogempty.client.module.Module;
 import ru.bogempty.client.setting.Setting;
 
 import java.util.concurrent.ThreadLocalRandom;
-import net.minecraft.class_1657;
-import net.minecraft.class_1713;
-import net.minecraft.class_1799;
-import net.minecraft.class_1802;
-import net.minecraft.class_746;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.screen.slot.SlotActionType;
 
-/**
- * Автототем с легит-задержкой и silent-кликами.
- * FunTime смотрит на слишком быстрые/предсказуемые свапы и на открытие инвентаря.
- * Здесь: порог HP, случайная задержка, работа только через slot-click, без GUI.
- */
 public class AutoTotem extends Module {
 
     private final Setting.Num health = add(new Setting.Num("Health", 12.0, 1.0, 20.0, 0.5),
@@ -43,15 +38,15 @@ public class AutoTotem extends Module {
 
     @Override
     public void onTick() {
-        class_746 p = mc.field_1724;
-        if (p == null || mc.field_1761 == null || mc.field_1755 != null) return;
+        ClientPlayerEntity p = mc.player;
+        if (p == null || mc.interactionManager == null || mc.currentScreen != null) return;
 
-        float hp = p.method_6032() + p.method_6067();
+        float hp = p.getHealth() + p.getAbsorptionAmount();
         if (hp < lastHp - 2.0f) lastDamageMs = System.currentTimeMillis();
         lastHp = hp;
 
-        class_1799 off = p.method_6079();
-        if (off.method_31574(class_1802.field_8288)) {
+        ItemStack off = p.getOffHandStack();
+        if (off.isOf(Items.TOTEM_OF_UNDYING)) {
             waitTicks = 0;
             return;
         }
@@ -70,11 +65,7 @@ public class AutoTotem extends Module {
         if (waitTicks <= 0) {
             int min = (int) delayMin.get();
             int max = Math.max(min, (int) delayMax.get());
-            if (mode.is("Strict")) {
-                waitTicks = min;
-            } else {
-                waitTicks = ThreadLocalRandom.current().nextInt(min, max + 1);
-            }
+            waitTicks = mode.is("Strict") ? min : ThreadLocalRandom.current().nextInt(min, max + 1);
             return;
         }
 
@@ -84,23 +75,23 @@ public class AutoTotem extends Module {
         swapToOffhand(slot);
     }
 
-    private int findTotemSlot(class_1657 p) {
+    private int findTotemSlot(PlayerEntity p) {
         for (int i = 0; i < 36; i++) {
-            class_1799 s = p.method_31548().method_5438(i);
-            if (s.method_31574(class_1802.field_8288)) return i < 9 ? i + 36 : i;
+            ItemStack s = p.getInventory().getStack(i);
+            if (s.isOf(Items.TOTEM_OF_UNDYING)) return i < 9 ? i + 36 : i;
         }
         return -1;
     }
 
     private void swapToOffhand(int invSlot) {
-        if (mc.field_1761 == null || mc.field_1724 == null) return;
-        int sync = mc.field_1724.field_7512.field_7763;
+        if (mc.interactionManager == null || mc.player == null) return;
+        int sync = mc.player.currentScreenHandler.syncId;
 
-        mc.field_1761.method_2906(sync, invSlot, 0, class_1713.field_7790, mc.field_1724);
-        mc.field_1761.method_2906(sync, 45, 0, class_1713.field_7790, mc.field_1724);
+        mc.interactionManager.clickSlot(sync, invSlot, 0, SlotActionType.PICKUP, mc.player);
+        mc.interactionManager.clickSlot(sync, 45, 0, SlotActionType.PICKUP, mc.player);
 
-        if (!mc.field_1724.field_7512.method_34255().method_7960()) {
-            mc.field_1761.method_2906(sync, invSlot, 0, class_1713.field_7790, mc.field_1724);
+        if (!mc.player.currentScreenHandler.getCursorStack().isEmpty()) {
+            mc.interactionManager.clickSlot(sync, invSlot, 0, SlotActionType.PICKUP, mc.player);
         }
     }
 }
