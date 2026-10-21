@@ -15,23 +15,23 @@ import org.lwjgl.glfw.GLFW;
 
 public class AutoSwap extends Module {
 
-    private final Setting.Mode mode = add(new Setting.Mode("Mode",
-            "Crystal to Crystal", "Totem to Totem", "Crystal to Totem"),
-            "What to swap between mainhand and offhand / inventory.");
-    private final Setting.Bool bindSwap = add(new Setting.Bool("On key", true),
-            "Swap only when the module key is pressed (toggle still enables the module).");
-    private final Setting.Num delay = add(new Setting.Num("Delay", 1, 0, 6, 1),
-            "Ticks between clicks.");
-    private final Setting.Bool silent = add(new Setting.Bool("Silent", true),
-            "Do not open inventory.");
-    private final Setting.Bool preferHotbar = add(new Setting.Bool("Prefer hotbar", true),
-            "Search hotbar first.");
+    private final Setting.Mode mode = add(new Setting.Mode("Режим",
+            "Сфера на сферу", "Тотем на тотем", "Сфера на тотем"),
+            "Что менять.");
+    private final Setting.Bool onKey = add(new Setting.Bool("По клавише", true),
+            "Свап только по бинду ниже.");
+    private final Setting.Num swapKey = add(new Setting.Num("Бинд (GLFW)", GLFW.GLFW_KEY_X, 0, 400, 1),
+            "Код клавиши GLFW. В ClickGui зажми модуль-биндом или поставь сюда код (X=88).");
+    private final Setting.Num delay = add(new Setting.Num("Задержка", 1, 0, 6, 1),
+            "Тики между кликами.");
+    private final Setting.Bool preferHotbar = add(new Setting.Bool("Сначала хотбар", true),
+            "Искать сначала в хотбаре.");
 
     private int cooldown = 0;
     private boolean keyWasDown = false;
 
     public AutoSwap() {
-        super("AutoSwap", "Swaps crystals and totems according to mode", Category.COMBAT);
+        super("AutoSwap", "Свап сфер и тотемов", Category.COMBAT);
         key = GLFW.GLFW_KEY_X;
     }
 
@@ -45,16 +45,19 @@ public class AutoSwap extends Module {
             return;
         }
 
-        boolean pressed = key != -1 && GLFW.glfwGetKey(mc.getWindow().getHandle(), key) == GLFW.GLFW_PRESS;
+        int k = (int) swapKey.get();
+        if (k <= 0) k = key > 0 ? key : GLFW.GLFW_KEY_X;
 
-        if (bindSwap.get()) {
+        boolean pressed = GLFW.glfwGetKey(mc.getWindow().getHandle(), k) == GLFW.GLFW_PRESS;
+
+        if (onKey.get()) {
             if (!pressed || keyWasDown) {
                 keyWasDown = pressed;
                 return;
             }
             keyWasDown = true;
-        } else {
-            if (!shouldAuto(p)) return;
+        } else if (!shouldAuto(p)) {
+            return;
         }
 
         doSwap(p);
@@ -65,18 +68,18 @@ public class AutoSwap extends Module {
         ItemStack main = p.getMainHandStack();
         ItemStack off = p.getOffHandStack();
         return switch (mode.get()) {
-            case "Crystal to Crystal" -> !main.isOf(Items.END_CRYSTAL) && has(p, Items.END_CRYSTAL);
-            case "Totem to Totem" -> !off.isOf(Items.TOTEM_OF_UNDYING) && has(p, Items.TOTEM_OF_UNDYING);
-            case "Crystal to Totem" -> main.isOf(Items.END_CRYSTAL) && has(p, Items.TOTEM_OF_UNDYING);
+            case "Сфера на сферу" -> !main.isOf(Items.END_CRYSTAL) && has(p, Items.END_CRYSTAL);
+            case "Тотем на тотем" -> !off.isOf(Items.TOTEM_OF_UNDYING) && has(p, Items.TOTEM_OF_UNDYING);
+            case "Сфера на тотем" -> main.isOf(Items.END_CRYSTAL) && has(p, Items.TOTEM_OF_UNDYING);
             default -> false;
         };
     }
 
     private void doSwap(ClientPlayerEntity p) {
         switch (mode.get()) {
-            case "Crystal to Crystal" -> swapItem(p, Items.END_CRYSTAL, false);
-            case "Totem to Totem" -> swapItem(p, Items.TOTEM_OF_UNDYING, true);
-            case "Crystal to Totem" -> {
+            case "Сфера на сферу" -> swapItem(p, Items.END_CRYSTAL, false);
+            case "Тотем на тотем" -> swapItem(p, Items.TOTEM_OF_UNDYING, true);
+            case "Сфера на тотем" -> {
                 if (!p.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING)) {
                     int t = find(p, Items.TOTEM_OF_UNDYING);
                     if (t != -1) clickSwap(t, 45);
@@ -99,12 +102,10 @@ public class AutoSwap extends Module {
         int start = preferHotbar.get() ? 0 : 9;
         int end = preferHotbar.get() ? 9 : 36;
         for (int i = start; i < end; i++) {
-            if (p.getInventory().getStack(i).isOf(item))
-                return i < 9 ? i + 36 : i;
+            if (p.getInventory().getStack(i).isOf(item)) return i < 9 ? i + 36 : i;
         }
         for (int i = 0; i < 36; i++) {
-            if (p.getInventory().getStack(i).isOf(item))
-                return i < 9 ? i + 36 : i;
+            if (p.getInventory().getStack(i).isOf(item)) return i < 9 ? i + 36 : i;
         }
         return -1;
     }
