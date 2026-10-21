@@ -3,6 +3,8 @@ package ru.bogempty.client.module;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.util.InputUtil;
+import ru.bogempty.client.ClientExtras;
+import ru.bogempty.client.module.ai.AiTriggerBot;
 import ru.bogempty.client.module.combat.TriggerBot;
 import ru.bogempty.client.module.hud.ArmorHud;
 import ru.bogempty.client.module.hud.ArrayListModule;
@@ -46,6 +48,12 @@ public class ModuleManager {
         modules.add(new TargetHud());
         modules.add(new ArmorHud());
         modules.add(new ArrayListModule());
+
+        // Ai
+        modules.add(new AiTriggerBot());
+
+        // кнопка альт-менеджера в меню, сохранение обучения при выходе
+        ClientExtras.init();
     }
 
     public void onTick() {
