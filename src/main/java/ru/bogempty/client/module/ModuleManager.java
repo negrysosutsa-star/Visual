@@ -1,10 +1,9 @@
 package ru.bogempty.client.module;
 
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.util.InputUtil;
 import ru.bogempty.client.ClientExtras;
 import ru.bogempty.client.module.ai.AiTriggerBot;
+import ru.bogempty.client.module.combat.AutoSwap;
+import ru.bogempty.client.module.combat.AutoTotem;
 import ru.bogempty.client.module.combat.TriggerBot;
 import ru.bogempty.client.module.hud.ArmorHud;
 import ru.bogempty.client.module.hud.ArrayListModule;
@@ -23,6 +22,9 @@ import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.class_310;
+import net.minecraft.class_332;
+import net.minecraft.class_3675;
 
 public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
@@ -30,6 +32,8 @@ public class ModuleManager {
     public ModuleManager() {
         // Combat
         modules.add(new TriggerBot());
+        modules.add(new AutoTotem());
+        modules.add(new AutoSwap());
 
         // Movement
         modules.add(new AutoSprint());
@@ -54,7 +58,6 @@ public class ModuleManager {
         // Ai
         modules.add(new AiTriggerBot());
 
-        // кнопка альт-менеджера в меню, сохранение обучения при выходе
         ClientExtras.init();
     }
 
@@ -64,18 +67,18 @@ public class ModuleManager {
         }
     }
 
-    public void handleKeys(MinecraftClient mc) {
-        if (mc.currentScreen != null) return;
-        long handle = mc.getWindow().getHandle();
+    public void handleKeys(class_310 mc) {
+        if (mc.field_1755 != null) return;
+        long handle = mc.method_22683().method_4490();
         for (Module m : modules) {
             if (m.key == -1) continue;
-            boolean pressed = InputUtil.isKeyPressed(handle, m.key);
+            boolean pressed = class_3675.method_15987(handle, m.key);
             if (pressed && !m.keyDown) m.toggle();
             m.keyDown = pressed;
         }
     }
 
-    public void onRender2D(DrawContext context, float tickDelta) {
+    public void onRender2D(class_332 context, float tickDelta) {
         for (Module m : modules) {
             if (m.isEnabled()) m.onRender2D(context, tickDelta);
         }
