@@ -36,7 +36,7 @@ public class NeuralAimAssist extends Module {
     private final Setting.Num reactMax = add(new Setting.Num("React max ms", 120, 0, 350, 5),
             "Max reaction delay.");
     private final Setting.Bool learn = add(new Setting.Bool("Learn from me", true),
-            "Record your mouse deltas when you aim at players.");
+            "Record your mouse deltas when you aim.");
     private final Setting.Num learnStrength = add(new Setting.Num("Learn strength", 0.4, 0.05, 1.0, 0.05),
             "How strongly your style overrides base speed.");
     private final Setting.Bool visibleOnly = add(new Setting.Bool("Visible only", true),
@@ -51,7 +51,8 @@ public class NeuralAimAssist extends Module {
     private LivingEntity locked = null;
     private long seeSince = 0L;
     private long reactUntil = 0L;
-    private float lastYaw, lastPitch;
+    private float lastYaw;
+    private float lastPitch;
 
     public NeuralAimAssist() {
         super("NeuralAimAssist", "Human-like aim assist with style learning", Category.AI);
@@ -65,8 +66,12 @@ public class NeuralAimAssist extends Module {
             return;
         }
 
-        if (learn.get()) samplePlayerAim(p);
-        if (mode.is("Train only")) return;
+        if (learn.get()) {
+            samplePlayerAim(p);
+        }
+        if (mode.is("Train only")) {
+            return;
+        }
 
         LivingEntity t = findTarget(p);
         long now = System.currentTimeMillis();
@@ -84,8 +89,12 @@ public class NeuralAimAssist extends Module {
             reactUntil = now + ThreadLocalRandom.current().nextInt(rmin, rmax + 1);
         }
 
-        if (now < reactUntil) return;
-        if (ThreadLocalRandom.current().nextDouble() * 100 < missChance.get()) return;
+        if (now < reactUntil) {
+            return;
+        }
+        if (ThreadLocalRandom.current().nextDouble() * 100.0 < missChance.get()) {
+            return;
+        }
 
         aimAt(p, t);
     }
@@ -97,8 +106,111 @@ public class NeuralAimAssist extends Module {
         lastPitch = p.getPitch();
 
         double mag = Math.sqrt(dy * dy + dp * dp);
-        if (mag < 0.05 || mag > 25) return;
+        if (mag < 0.05 || mag > 25.0) {
+            return;
+        }
 
         double s = MathHelper.clamp(mag / 18.0, 0.08, 1.0);
         learnedSpeed = learnedSpeed * 0.98 + s * 0.02;
-        learnedSmooth = learnedSmooth * 0.99 + MathHelper.clamp(1.0 - mag / 30.
+        learnedSmooth = learnedSmooth * 0.99 + MathHelper.clamp(1.0 - mag / 30.0, 0.2, 0.9) * 0.01;
+        learnSamples++;
+    }
+
+    private void aimAt(ClientPlayerEntity p, LivingEntity t) {
+        Vec3d eye = p.getEyePos();
+        Vec3d point = t.getBoundingBox().getCenter().add(0.0, t.getHeight() * 0.15, 0.0);
+        Vec3d diff = point.subtract(eye);
+        double dist = diff.length();
+        if (dist < 1e-4) {
+            return;
+        }
+
+        float targetYaw = (float) (MathHelper.atan2(diff.z, diff.x) * (180.0 / Math.PI)) - 90.0f;
+        float targetPitch = (float) (-(MathHelper.atan2(diff.y, Math.sqrt(diff.x * diff.x + diff.z * diff.z)) * (180.0 / Math.PI)));
+
+        float yaw = p.getYaw();
+        float pitch = p.getPitch();
+        float dYaw = MathHelper.wrapDegrees(targetYaw - yaw);
+        float dPitch = targetPitch - pitch;
+
+        double spd = speed.get();
+        double sm = smooth.get();
+        if (learn.get() && learnSamples > 50) {
+            double k = learnStrength.get();
+            spd = spd * (1.0 - k) + learnedSpeed * k;
+            sm = sm * (1.0 - k) + learnedSmooth * k;
+        }
+
+        double distFactor = MathHelper.clamp(1.2 - dist / range.get(), 0.35, 1.0);
+        spd *= distFactor;
+
+        long hold = System.currentTimeMillis() - seeSince;
+        if (hold > 2500L) {
+            spd *= 0.85;
+        }
+
+        float stepYaw = (float) (dYaw * (1.0 - sm) * spd);
+        float stepPitch = (float) (dPitch * (1.0 - sm) * spd);
+
+        double j = jitter.get();
+        if (j > 0.0) {
+            stepYaw += (ThreadLocalRandom.current().nextDouble() - 0.5) * j;
+            stepPitch += (ThreadLocalRandom.current().nextDouble() - 0.5) * j * 0.6;
+        }
+
+        if (mode.is("Silent")) {
+            stepYaw *= 0.25f;
+            stepPitch *= 0.25f;
+        }
+
+        p.setYaw(yaw + stepYaw);
+        p.setPitch(MathHelper.clamp(pitch + stepPitch, -90.0f, 90.0f));
+    }
+
+    private LivingEntity findTarget(ClientPlayerEntity p) {
+        LivingEntity best = null;
+        double bestScore = Double.MAX_VALUE;
+        Vec3d eye = p.getEyePos();
+
+        for (Entity e : mc.world.getEntities()) {
+            if (!(e instanceof LivingEntity le) || le == p || !le.isAlive()) {
+                continue;
+            }
+
+            if (le instanceof PlayerEntity pl) {
+                if (!(targets.is("Players") || targets.is("All"))) {
+                    continue;
+                }
+                if (ignoreFriends.get() && FriendManager.isFriend(pl.getName().getString())) {
+                    continue;
+                }
+            } else if (!targets.is("All")) {
+                continue;
+            }
+
+            double d = eye.distanceTo(le.getBoundingBox().getCenter());
+            if (d > range.get()) {
+                continue;
+            }
+
+            Vec3d diff = le.getBoundingBox().getCenter().subtract(eye).normalize();
+            Vec3d look = p.getRotationVec(1.0f);
+            double dot = look.dotProduct(diff);
+            double ang = Math.toDegrees(Math.acos(MathHelper.clamp(dot, -1.0, 1.0)));
+            if (ang > fov.get() / 2.0) {
+                continue;
+            }
+
+            if (visibleOnly.get() && !p.canSee(le)) {
+                continue;
+            }
+
+            double score = ang * 2.0 + d;
+            if (score < bestScore) {
+                bestScore = score;
+                best = le;
+            }
+        }
+        return best;
+    }
+}
