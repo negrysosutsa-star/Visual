@@ -19,6 +19,7 @@ import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.FullBright;
 import ru.bogempty.client.module.visual.NoRender;
+import ru.bogempty.client.module.visual.TargetEsp;
 import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
@@ -47,6 +48,7 @@ public class ModuleManager {
         modules.add(new CustomSky());
         modules.add(new NoRender());
         modules.add(new CustomCrosshair());
+        modules.add(new TargetEsp());
 
         // HUD
         modules.add(new Watermark());
