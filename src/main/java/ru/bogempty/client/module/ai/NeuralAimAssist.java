@@ -17,43 +17,52 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
+/**
+ * Аим в духе SystemDLC: пружина + разгон, точка по телу, обучение под мышь.
+ */
 public class NeuralAimAssist extends Module {
 
-    private final Setting.Mode mode = add(new Setting.Mode("Режим", "Ассист", "Сайлент", "Только обучение"),
-            "Ассист: мягкая наводка. Сайлент: еле заметно. Только обучение: сам не крутит.");
+    private final Setting.Mode mode = add(new Setting.Mode("Режим", "Ассист", "Легит", "Сайлент", "Только обучение"),
+            "Ассист — обычный. Легит — медленнее и мягче. Сайлент — почти не видно. Только обучение — не крутит.");
     private final Setting.Mode targets = add(new Setting.Mode("Цели", "Игроки", "Все"),
-            "На кого наводиться.");
-    private final Setting.Num fov = add(new Setting.Num("FOV", 55, 15, 120, 1),
-            "Конус в градусах.");
-    private final Setting.Num range = add(new Setting.Num("Дистанция", 4.5, 2.0, 6.0, 0.1),
+            "На кого вести.");
+    private final Setting.Mode hitbox = add(new Setting.Mode("Точка", "Тело", "Голова", "Ноги", "Рандом"),
+            "Куда целиться на модели.");
+    private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 140, 1),
+            "Конус захвата, градусы.");
+    private final Setting.Num range = add(new Setting.Num("Дистанция", 4.8, 2.0, 6.0, 0.1),
             "Макс. дистанция.");
-    private final Setting.Num speed = add(new Setting.Num("Скорость", 0.22, 0.05, 0.6, 0.01),
-            "Базовая скорость. Ниже = спокойнее.");
-    private final Setting.Num smooth = add(new Setting.Num("Плавность", 0.82, 0.5, 0.95, 0.01),
-            "Сглаживание. 0.8+ почти без рывков.");
-    private final Setting.Num maxStep = add(new Setting.Num("Макс. шаг °", 3.5, 1.0, 8.0, 0.1),
-            "Максимум градусов за тик. Главный анти-дёргатель.");
-    private final Setting.Num missChance = add(new Setting.Num("Промах %", 10, 0, 35, 1),
-            "Шанс тик пропустить.");
-    private final Setting.Num reactMin = add(new Setting.Num("Реакция от мс", 60, 0, 250, 5),
-            "Мин. задержка реакции.");
-    private final Setting.Num reactMax = add(new Setting.Num("Реакция до мс", 150, 0, 400, 5),
+    private final Setting.Num speed = add(new Setting.Num("Скорость", 0.38, 0.08, 1.0, 0.01),
+            "Базовая сила пружины.");
+    private final Setting.Num damp = add(new Setting.Num("Демпфер", 0.78, 0.4, 0.95, 0.01),
+            "Гашение скорости. Выше = меньше инерции и дёрганий.");
+    private final Setting.Num accel = add(new Setting.Num("Разгон", 0.45, 0.1, 1.0, 0.01),
+            "Как быстро набирает скорость к цели.");
+    private final Setting.Num maxStep = add(new Setting.Num("Макс. шаг °", 4.2, 1.5, 10.0, 0.1),
+            "Потолок градусов за тик.");
+    private final Setting.Num sens = add(new Setting.Num("Чувств. рядом", 0.55, 0.15, 1.0, 0.05),
+            "Множитель скорости когда прицел уже близко к цели.");
+    private final Setting.Num missChance = add(new Setting.Num("Промах %", 6, 0, 30, 1),
+            "Шанс тик не вести (человечность).");
+    private final Setting.Num reactMin = add(new Setting.Num("Реакция от мс", 45, 0, 200, 5),
+            "Мин. задержка после появления в FOV.");
+    private final Setting.Num reactMax = add(new Setting.Num("Реакция до мс", 110, 0, 300, 5),
             "Макс. задержка реакции.");
     private final Setting.Bool learn = add(new Setting.Bool("Учиться на мне", true),
-            "Пишет твои движения мыши.");
-    private final Setting.Num learnStrength = add(new Setting.Num("Сила обучения", 0.7, 0.1, 1.0, 0.05),
-            "Насколько твой стиль перебивает базу.");
+            "Подстраивается под твою мышь.");
+    private final Setting.Num learnStrength = add(new Setting.Num("Сила обучения", 0.75, 0.1, 1.0, 0.05),
+            "Вес твоего стиля после обучения.");
     private final Setting.Bool visibleOnly = add(new Setting.Bool("Только видимые", true),
-            "Не через стены.");
+            "Не вести сквозь стены.");
     private final Setting.Bool ignoreFriends = add(new Setting.Bool("Игнор друзей", true),
             "Пропуск .friend.");
     private final Setting.Bool hud = add(new Setting.Bool("Панель", true),
-            "Статистика обучения.");
+            "Сэмплы и обученность.");
     private final Setting.Bool resetLearn = add(new Setting.Bool("Сбросить обучение", false),
-            "Стереть выученное.");
+            "Обнулить выученное.");
 
-    private double learnedSpeed = 0.22;
-    private double learnedSmooth = 0.82;
+    private double learnedSpeed = 0.38;
+    private double learnedDamp = 0.78;
     private int learnSamples = 0;
 
     private LivingEntity locked = null;
@@ -61,12 +70,14 @@ public class NeuralAimAssist extends Module {
     private long reactUntil = 0L;
     private float lastYaw, lastPitch;
     private float velYaw, velPitch;
+    private float bodyOffset = 0.45f;
+    private long nextBodyShift = 0L;
     private float flash = 0f;
     private int shownSamples = -1;
     private String why = "—";
 
     public NeuralAimAssist() {
-        super("NeuralAimAssist", "Нейро-аим с обучением под твой стиль", Category.AI);
+        super("NeuralAimAssist", "Аим SystemDLC-стиль с обучением", Category.AI);
     }
 
     @Override
@@ -74,16 +85,15 @@ public class NeuralAimAssist extends Module {
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.world == null || mc.currentScreen != null) {
             locked = null;
-            velYaw = 0;
-            velPitch = 0;
+            velYaw = velPitch = 0;
             why = "Нет мира";
             return;
         }
 
         if (resetLearn.get()) {
             resetLearn.value = false;
-            learnedSpeed = 0.22;
-            learnedSmooth = 0.82;
+            learnedSpeed = 0.38;
+            learnedDamp = 0.78;
             learnSamples = 0;
             why = "Обучение сброшено";
         }
@@ -91,7 +101,7 @@ public class NeuralAimAssist extends Module {
         if (learn.get()) samplePlayerAim(p);
 
         if (mode.is("Только обучение")) {
-            why = "Режим: только обучение";
+            why = "Только обучение";
             return;
         }
 
@@ -100,12 +110,11 @@ public class NeuralAimAssist extends Module {
 
         if (t == null) {
             locked = null;
-            // плавное затухание — не обнулять резко
-            velYaw *= 0.5f;
-            velPitch *= 0.5f;
-            if (Math.abs(velYaw) < 0.01f) velYaw = 0;
-            if (Math.abs(velPitch) < 0.01f) velPitch = 0;
-            why = "Нет цели в FOV";
+            velYaw *= 0.55f;
+            velPitch *= 0.55f;
+            if (Math.abs(velYaw) < 0.02f) velYaw = 0;
+            if (Math.abs(velPitch) < 0.02f) velPitch = 0;
+            why = "Нет цели";
             return;
         }
 
@@ -114,27 +123,42 @@ public class NeuralAimAssist extends Module {
             seeSince = now;
             int rmin = (int) reactMin.get();
             int rmax = Math.max(rmin, (int) reactMax.get());
-            if (learnSamples > 250) {
-                rmin = Math.max(35, rmin - 20);
-                rmax = Math.max(rmin + 25, rmax - 30);
+            if (learnSamples > 200) {
+                rmin = Math.max(25, rmin - 15);
+                rmax = Math.max(rmin + 20, rmax - 25);
             }
             reactUntil = now + ThreadLocalRandom.current().nextInt(rmin, rmax + 1);
-            // при смене цели не дёргаем — гасим скорость
-            velYaw *= 0.3f;
-            velPitch *= 0.3f;
+            velYaw *= 0.25f;
+            velPitch *= 0.25f;
+            pickBodyOffset(true);
         }
+
+        if (now >= nextBodyShift) pickBodyOffset(false);
 
         if (now < reactUntil) {
             why = "Реакция…";
             return;
         }
         if (ThreadLocalRandom.current().nextDouble() * 100.0 < missChance.get()) {
-            why = "Промах (человечность)";
+            why = "Промах";
             return;
         }
 
-        aimAt(p, t);
+        aimSpring(p, t);
         why = "Веду: " + t.getName().getString();
+    }
+
+    private void pickBodyOffset(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now < nextBodyShift) return;
+        nextBodyShift = now + 180 + ThreadLocalRandom.current().nextInt(220);
+
+        switch (hitbox.get()) {
+            case "Голова" -> bodyOffset = 0.88f + ThreadLocalRandom.current().nextFloat() * 0.08f;
+            case "Ноги" -> bodyOffset = 0.18f + ThreadLocalRandom.current().nextFloat() * 0.12f;
+            case "Рандом" -> bodyOffset = 0.25f + ThreadLocalRandom.current().nextFloat() * 0.6f;
+            default -> bodyOffset = 0.42f + ThreadLocalRandom.current().nextFloat() * 0.22f; // тело
+        }
     }
 
     private void samplePlayerAim(ClientPlayerEntity p) {
@@ -144,20 +168,24 @@ public class NeuralAimAssist extends Module {
         lastPitch = p.getPitch();
 
         double mag = Math.sqrt(dy * dy + dp * dp);
-        if (mag < 0.1 || mag > 20.0) return;
+        if (mag < 0.08 || mag > 24.0) return;
 
-        double s = MathHelper.clamp(mag / 15.0, 0.05, 0.7);
-        double sm = MathHelper.clamp(1.0 - mag / 26.0, 0.5, 0.93);
-        learnedSpeed = learnedSpeed * 0.988 + s * 0.012;
-        learnedSmooth = learnedSmooth * 0.992 + sm * 0.008;
+        // скорость мыши → пружина
+        double s = MathHelper.clamp(mag / 14.0, 0.1, 0.95);
+        double d = MathHelper.clamp(1.0 - mag / 30.0, 0.55, 0.9);
+        learnedSpeed = learnedSpeed * 0.986 + s * 0.014;
+        learnedDamp = learnedDamp * 0.99 + d * 0.01;
         learnSamples++;
     }
 
-    private void aimAt(ClientPlayerEntity p, LivingEntity t) {
+    private void aimSpring(ClientPlayerEntity p, LivingEntity t) {
         Vec3d eye = p.getEyePos();
-        // грудь, не хедшот-лазер
-        double body = 0.4 + (learnSamples % 7) * 0.02;
-        Vec3d point = t.getPos().add(0.0, t.getHeight() * body, 0.0);
+        Vec3d point = t.getPos().add(0.0, t.getHeight() * bodyOffset, 0.0);
+
+        // лёгкий предикт по скорости цели (SystemDLC-вайб)
+        Vec3d vel = t.getVelocity();
+        point = point.add(vel.x * 0.08, vel.y * 0.03, vel.z * 0.08);
+
         Vec3d diff = point.subtract(eye);
         double dist = diff.length();
         if (dist < 1e-4) return;
@@ -167,42 +195,52 @@ public class NeuralAimAssist extends Module {
 
         float yaw = p.getYaw();
         float pitch = p.getPitch();
-        float dYaw = MathHelper.wrapDegrees(targetYaw - yaw);
-        float dPitch = targetPitch - pitch;
+        float errYaw = MathHelper.wrapDegrees(targetYaw - yaw);
+        float errPitch = targetPitch - pitch;
+        float err = (float) Math.sqrt(errYaw * errYaw + errPitch * errPitch);
 
         double spd = speed.get();
-        double sm = smooth.get();
-        if (learn.get() && learnSamples > 30) {
-            double k = learnStrength.get() * Math.min(1.0, learnSamples / 350.0);
+        double damping = damp.get();
+        double acc = accel.get();
+
+        if (learn.get() && learnSamples > 40) {
+            double k = learnStrength.get() * Math.min(1.0, learnSamples / 280.0);
             spd = spd * (1.0 - k) + learnedSpeed * k;
-            sm = sm * (1.0 - k) + learnedSmooth * k;
+            damping = damping * (1.0 - k) + learnedDamp * k;
         }
 
+        // режим
+        if (mode.is("Легит")) {
+            spd *= 0.55;
+            damping = Math.min(0.92, damping + 0.08);
+            acc *= 0.7;
+        } else if (mode.is("Сайлент")) {
+            spd *= 0.22;
+            damping = Math.min(0.94, damping + 0.1);
+        }
+
+        // ближе к центру — медленнее (как живой)
+        float near = (float) sens.get();
+        if (err < 12f) spd *= MathHelper.lerp(err / 12f, near, 1.0);
+        if (err < 2.5f) spd *= 0.45;
+
         // дистанция
-        spd *= MathHelper.clamp(1.1 - dist / range.get(), 0.35, 1.0);
-        if (System.currentTimeMillis() - seeSince > 3000L) spd *= 0.8;
+        spd *= MathHelper.clamp(1.15 - dist / range.get(), 0.4, 1.0);
 
-        // целевая скорость кадра
-        float wantYaw = (float) (dYaw * (1.0 - sm) * spd);
-        float wantPitch = (float) (dPitch * (1.0 - sm) * spd);
-
-        // сильная инерция — главный фикс дёрганий
-        velYaw = velYaw * 0.72f + wantYaw * 0.28f;
-        velPitch = velPitch * 0.72f + wantPitch * 0.28f;
+        // пружина: ускоряемся к ошибке, гасим скорость
+        float forceYaw = (float) (errYaw * spd * acc);
+        float forcePitch = (float) (errPitch * spd * acc);
+        velYaw = (float) ((velYaw + forceYaw) * damping);
+        velPitch = (float) ((velPitch + forcePitch) * damping);
 
         float cap = (float) maxStep.get();
-        if (learnSamples > 300) cap = Math.min(cap + 0.8f, 5.5f);
+        if (learnSamples > 250) cap = Math.min(cap + 1.0f, 7.0f);
         velYaw = MathHelper.clamp(velYaw, -cap, cap);
         velPitch = MathHelper.clamp(velPitch, -cap, cap);
 
-        if (mode.is("Сайлент")) {
-            velYaw *= 0.2f;
-            velPitch *= 0.2f;
-        }
-
-        // мёртвая зона — не дрожим на субпикселе
-        if (Math.abs(dYaw) < 0.35f) velYaw *= 0.4f;
-        if (Math.abs(dPitch) < 0.35f) velPitch *= 0.4f;
+        // мёртвая зона — не дрожим
+        if (Math.abs(errYaw) < 0.2f) velYaw = 0;
+        if (Math.abs(errPitch) < 0.2f) velPitch = 0;
 
         p.setYaw(yaw + velYaw);
         p.setPitch(MathHelper.clamp(pitch + velPitch, -90f, 90f));
@@ -233,7 +271,7 @@ public class NeuralAimAssist extends Module {
             if (ang > fovHalf) continue;
             if (visibleOnly.get() && !p.canSee(le)) continue;
 
-            double score = ang * 2.0 + d;
+            double score = ang * 1.8 + d;
             if (score < bestScore) {
                 bestScore = score;
                 best = le;
@@ -254,11 +292,11 @@ public class NeuralAimAssist extends Module {
 
         int x = 8;
         int y = mc.getWindow().getScaledHeight() / 2 + 105;
-        int w = 160;
-        int h = 118;
+        int w = 168;
+        int h = 122;
         RenderUtils.drawRoundedRect(c, x, y, x + w, y + h, 6, 0xAA0C0C14);
         Fonts.draw(c, "НейроАим", x + 8, y + 6, 0xFFFFFFFF);
-        Fonts.draw(c, mode.get(), x + 8, y + 17, 0xFF8F86FF);
+        Fonts.draw(c, mode.get() + " · " + hitbox.get(), x + 8, y + 17, 0xFF8F86FF);
 
         String big = String.valueOf(learnSamples);
         MatrixStack ms = c.getMatrices();
@@ -269,12 +307,10 @@ public class NeuralAimAssist extends Module {
         ms.pop();
         Fonts.draw(c, "сэмплов", x + 8 + Fonts.width(big) * 2 + 6, y + 40, 0xFF6E6E86);
 
-        float mat = (float) Math.min(1.0, learnSamples / 500.0);
+        float mat = (float) Math.min(1.0, learnSamples / 400.0);
         bar(c, x + 8, y + 58, w - 16, mat, "Обученность");
-        float style = (float) MathHelper.clamp(learnedSmooth, 0, 1);
-        bar(c, x + 8, y + 74, w - 16, style, "Плавность стиля");
-
-        Fonts.draw(c, why, x + 8, y + 96, 0xFFE0C070);
+        bar(c, x + 8, y + 74, w - 16, (float) MathHelper.clamp(learnedDamp, 0, 1), "Плавность стиля");
+        Fonts.draw(c, why, x + 8, y + 98, 0xFFE0C070);
     }
 
     private void bar(DrawContext c, int x, int y, int w, float v, String label) {
