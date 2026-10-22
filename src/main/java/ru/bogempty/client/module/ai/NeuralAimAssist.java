@@ -7,7 +7,6 @@ import com.google.gson.JsonParser;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.decoration.ArmorStandEntity;
@@ -18,8 +17,6 @@ import net.minecraft.util.math.Vec3d;
 import ru.bogempty.client.friend.FriendManager;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
-import ru.bogempty.client.render.Fonts;
-import ru.bogempty.client.render.RenderUtils;
 import ru.bogempty.client.setting.Setting;
 
 import java.nio.file.Files;
@@ -79,8 +76,6 @@ public class NeuralAimAssist extends Module {
             "Не вести сквозь стены.");
     private final Setting.Bool ignoreFriends = add(new Setting.Bool("Игнор друзей", true),
             "Не вести на друзей из .friend.");
-    private final Setting.Bool hud = add(new Setting.Bool("Панель", true),
-            "Сэмплы, обученность и состояние аима.");
     private final Setting.Bool resetLearn = add(new Setting.Bool("Сбросить обучение", false),
             "Обнулить выученное (переключатель вернётся сам).");
 
@@ -115,9 +110,7 @@ public class NeuralAimAssist extends Module {
     private long lastUserMs = 0L;
     private long lastSampleMs = 0L;
 
-    // панель
-    private float flash = 0f;
-    private int shownSamples = -1;
+    // состояние (для отладки/логов, на экран не выводится)
     private String why = "—";
 
     public NeuralAimAssist() {
@@ -464,7 +457,7 @@ public class NeuralAimAssist extends Module {
         }
     }
 
-    // ---------- кадр и панель ----------
+    // ---------- кадр ----------
     @Override
     public void onRender2D(DrawContext c, float tickDelta) {
         ClientPlayerEntity p = mc.player;
@@ -474,5 +467,5 @@ public class NeuralAimAssist extends Module {
             return;
         }
         frame(p, tickDelta);
-
-     
+    }
+}
