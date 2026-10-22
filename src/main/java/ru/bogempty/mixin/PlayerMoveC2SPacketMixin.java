@@ -15,14 +15,13 @@ public class PlayerMoveC2SPacketMixin {
     private void onInit(double x, double y, double z, float yaw, float pitch, boolean onGround, CallbackInfo ci) {
         Module aim = null;
         try {
-            // Ищем модуль по имени среди всех, что есть в менеджере
             for (java.lang.reflect.Field f : ModuleManager.class.getDeclaredFields()) {
                 if (java.util.List.class.isAssignableFrom(f.getType())) {
                     f.setAccessible(true);
                     Object val = f.get(null);
                     if (val == null) continue;
                     for (Object obj : (java.util.List<?>) val) {
-                        if (obj instanceof Module m && m.getName().equalsIgnoreCase("NeuralAimAssist")) {
+                        if (obj instanceof Module m && obj.getClass().getSimpleName().equals("NeuralAimAssist")) {
                             aim = m;
                             break;
                         }
