@@ -1,11 +1,11 @@
 package ru.bogempty.client.module;
 
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
 import ru.bogempty.client.setting.Setting;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
 
 public abstract class Module {
     public final String name;
@@ -14,6 +14,8 @@ public abstract class Module {
     public boolean enabled;
     public int key = -1;
     public boolean keyDown;
+    /** true: клавиша модуля не включает его, а вызывает onKey() (например, свап предметов). */
+    public boolean keyAction = false;
     public float anim;
     public final List<Setting> settings = new ArrayList<>();
 
@@ -50,6 +52,7 @@ public abstract class Module {
     public void onEnable() {}
     public void onDisable() {}
     public void onTick() {}
+    public void onKey() {}
     public void onRender2D(DrawContext context, float tickDelta) {}
 
     public boolean isEnabled() {
