@@ -472,4 +472,4 @@ public final class SpaceSky {
         float r = (float) Math.sqrt(u * u + v * v);
         over(o, 1f, 0.72f, 0.25f, (float) Math.exp(-r * 4.5f) * 0.9f);
         float au = Math.abs(u), av = Math.abs(v);
-        float cross = (float) (
+        float cross = (float) M
