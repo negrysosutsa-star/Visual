@@ -2,7 +2,7 @@ package ru.bogempty.client.module.visual;
 
 import net.minecraft.client.option.CloudRenderMode;
 import net.minecraft.client.option.GameOptions;
-import net.minecraft.client.option.ParticlesMode;
+import net.minecraft.client.option.SimpleOption;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
 import ru.bogempty.client.setting.Setting;
@@ -19,7 +19,7 @@ public class NoRender extends Module {
     private final Setting.Bool fovFx = add(new Setting.Bool("Эффект FOV", false), "Не менять FOV от спринта, зелий и натяжения лука.");
     private final Setting.Bool distortion = add(new Setting.Bool("Искажения", false), "Убрать тошноту и эффект портала.");
 
-    private final OptOverride<ParticlesMode> oParticles = new OptOverride<>();
+    private final OptOverride<Object> oParticles = new OptOverride<>();
     private final OptOverride<CloudRenderMode> oClouds = new OptOverride<>();
     private final OptOverride<Boolean> oShadows = new OptOverride<>();
     private final OptOverride<Boolean> oBob = new OptOverride<>();
@@ -30,14 +30,36 @@ public class NoRender extends Module {
         super("NoRender", "Отключает лишнюю отрисовку", Category.VISUAL);
     }
 
+    /** Настройка частиц без обращения к классу режима по имени (его пакет менялся между версиями). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private SimpleOption<Object> particleOption(GameOptions o) {
+        return (SimpleOption) o.getParticles();
+    }
+
+    /** Находит значение режима частиц по имени (ALL, DECREASED, MINIMAL), иначе по номеру. */
+    private static Object pickMode(Object current, String name, int ordinal) {
+        Class<?> ec = ((Enum<?>) current).getDeclaringClass();
+        Object[] all = ec.getEnumConstants();
+        for (Object e : all) {
+            if (((Enum<?>) e).name().equals(name)) return e;
+        }
+        return all[Math.min(ordinal, all.length - 1)];
+    }
+
     @Override
     public void onTick() {
         GameOptions o = mc.options;
         if (o == null) return;
 
-        if (particles.is("Не менять")) oParticles.restore(o.getParticles());
-        else oParticles.apply(o.getParticles(), true,
-                particles.is("Выключить") ? ParticlesMode.MINIMAL : ParticlesMode.DECREASED);
+        SimpleOption<Object> po = particleOption(o);
+        if (particles.is("Не менять")) {
+            oParticles.restore(po);
+        } else {
+            Object want = particles.is("Выключить")
+                    ? pickMode(po.getValue(), "MINIMAL", 2)
+                    : pickMode(po.getValue(), "DECREASED", 1);
+            oParticles.apply(po, true, want);
+        }
 
         oClouds.apply(o.getCloudRenderMode(), clouds.get(), CloudRenderMode.OFF);
         oShadows.apply(o.getEntityShadows(), shadows.get(), false);
@@ -55,7 +77,7 @@ public class NoRender extends Module {
     public void onDisable() {
         GameOptions o = mc.options;
         if (o == null) return;
-        oParticles.restore(o.getParticles());
+        oParticles.restore(particleOption(o));
         oClouds.restore(o.getCloudRenderMode());
         oShadows.restore(o.getEntityShadows());
         oBob.restore(o.getBobView());
