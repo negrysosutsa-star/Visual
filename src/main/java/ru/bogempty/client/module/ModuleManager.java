@@ -8,12 +8,12 @@ import ru.bogempty.client.module.ai.AiTriggerBot;
 import ru.bogempty.client.module.ai.NeuralAimAssist;
 import ru.bogempty.client.module.combat.AutoSwap;
 import ru.bogempty.client.module.combat.AutoTotem;
-import ru.bogempty.client.module.combat.TriggerBot;
 import ru.bogempty.client.module.hud.ArmorHud;
 import ru.bogempty.client.module.hud.ArrayListModule;
 import ru.bogempty.client.module.hud.GpsHud;
 import ru.bogempty.client.module.hud.InfoHud;
 import ru.bogempty.client.module.hud.Keystrokes;
+import ru.bogempty.client.module.hud.Radar;
 import ru.bogempty.client.module.hud.TargetHud;
 import ru.bogempty.client.module.hud.Watermark;
 import ru.bogempty.client.module.movement.AutoSprint;
@@ -21,7 +21,11 @@ import ru.bogempty.client.module.movement.ShiftTap;
 import ru.bogempty.client.module.movement.SprintReset;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
+import ru.bogempty.client.module.visual.Esp;
+import ru.bogempty.client.module.visual.FpsBoost;
+import ru.bogempty.client.module.visual.FxParticles;
 import ru.bogempty.client.module.visual.FullBright;
+import ru.bogempty.client.module.visual.HitFx;
 import ru.bogempty.client.module.visual.Nametags;
 import ru.bogempty.client.module.visual.NoRender;
 import ru.bogempty.client.module.visual.Zoom;
@@ -33,7 +37,6 @@ public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
 
     public ModuleManager() {
-        modules.add(new TriggerBot());
         modules.add(new AutoTotem());
         modules.add(new AutoSwap());
 
@@ -47,6 +50,10 @@ public class ModuleManager {
         modules.add(new NoRender());
         modules.add(new CustomCrosshair());
         modules.add(new Nametags());
+        modules.add(new Esp());
+        modules.add(new HitFx());
+        modules.add(new FxParticles());
+        modules.add(new FpsBoost());
 
         modules.add(new Watermark());
         modules.add(new InfoHud());
@@ -55,6 +62,7 @@ public class ModuleManager {
         modules.add(new ArmorHud());
         modules.add(new ArrayListModule());
         modules.add(new GpsHud());
+        modules.add(new Radar());
 
         modules.add(new AiTriggerBot());
         modules.add(new NeuralAimAssist());
