@@ -8,6 +8,7 @@ import ru.bogempty.client.module.combat.AutoTotem;
 import ru.bogempty.client.module.combat.TriggerBot;
 import ru.bogempty.client.module.hud.ArmorHud;
 import ru.bogempty.client.module.hud.ArrayListModule;
+import ru.bogempty.client.module.hud.GpsHud;
 import ru.bogempty.client.module.hud.InfoHud;
 import ru.bogempty.client.module.hud.Keystrokes;
 import ru.bogempty.client.module.hud.TargetHud;
