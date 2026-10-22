@@ -57,6 +57,7 @@ public class ModuleManager {
         modules.add(new TargetHud());
         modules.add(new ArmorHud());
         modules.add(new ArrayListModule());
+        modules.add(new GpsHud());
 
         // Ai
         modules.add(new AiTriggerBot());
