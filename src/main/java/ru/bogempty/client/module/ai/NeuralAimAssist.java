@@ -28,9 +28,12 @@ import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Аим без дёрганий. Наводка считается КАЖДЫЙ КАДР (а не раз в тик), по плавной экспоненте:
- * без пружины и инерции, поэтому нет перелётов и дрожи. Если прицел уже на теле цели, он стоит.
- * Мышь игрока имеет приоритет: пока ты крутишь мышь, аим уступает.
+ * Умный аим. Считается КАЖДЫЙ КАДР, а не раз в тик.
+ * 1) Упреждение: точка сдвигается по скорости цели (сглаженной), поэтому не отстаёт на стрейфе.
+ * 2) Слежение: к плавному подтягиванию добавляется скорость, с которой цель уходит по углу
+ *    (feed-forward), поэтому прицел держится на цели без постоянной ошибки и без дёрганий.
+ * 3) Умная точка: целится в корпус и голову, а если прицел уже на теле, стоит на месте.
+ * 4) Мышь игрока имеет приоритет: пока ты крутишь мышь, аим уступает.
  */
 public class NeuralAimAssist extends Module {
 
@@ -40,8 +43,14 @@ public class NeuralAimAssist extends Module {
             "Всегда — ведёт, пока есть цель. При ЛКМ — только пока зажата атака.");
     private final Setting.Mode targets = add(new Setting.Mode("Цели", "Игроки", "Все"),
             "На кого вести.");
-    private final Setting.Mode hitbox = add(new Setting.Mode("Точка", "Ближайшая", "Грудь", "Голова", "Ноги"),
-            "Ближайшая — ведёт только пока прицел не на теле, потом стоит (самый ровный). Остальные — к выбранной точке тела.");
+    private final Setting.Mode hitbox = add(new Setting.Mode("Точка", "Умная", "Ближайшая", "Грудь", "Голова", "Ноги"),
+            "Умная — ближайшая точка корпуса и головы, на теле стоит. Ближайшая — любая часть тела. Остальные — фиксированная точка.");
+    private final Setting.Mode priority = add(new Setting.Mode("Приоритет", "Угол", "Дистанция", "Здоровье"),
+            "Кого выбирать из нескольких: ближайшего к прицелу, к тебе или с наименьшим ХП.");
+    private final Setting.Num leadMs = add(new Setting.Num("Упреждение мс", 70, 0, 200, 5),
+            "Насколько вперёд по движению цели смещается точка. 0 — без упреждения.");
+    private final Setting.Num track = add(new Setting.Num("Слежение %", 80, 0, 100, 5),
+            "Насколько прицел повторяет движение цели по углу. Больше — цель держится ровнее.");
     private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 140, 1),
             "Конус захвата, градусы.");
     private final Setting.Num range = add(new Setting.Num("Дистанция", 4.8, 2.0, 6.0, 0.1),
@@ -91,6 +100,13 @@ public class NeuralAimAssist extends Module {
     private long reactUntil = 0L;
     private Vec3d smPoint = null;
     private LivingEntity smTarget = null;
+
+    // кинематика цели
+    private LivingEntity velTarget = null;
+    private double velX = 0.0, velZ = 0.0;
+    private float lastTy, lastTp;
+    private boolean hasLastAng = false;
+    private double omegaY = 0.0, omegaP = 0.0;
 
     // кадр
     private long lastNanos = 0L;
@@ -191,6 +207,18 @@ public class NeuralAimAssist extends Module {
             smPoint = null;
         }
         aimActive = true;
+
+        // сглаженная скорость цели (блоков/с)
+        double dx = (locked.getX() - locked.prevX) * 20.0;
+        double dz = (locked.getZ() - locked.prevZ) * 20.0;
+        if (velTarget != locked) {
+            velTarget = locked;
+            velX = dx;
+            velZ = dz;
+        } else {
+            velX += (dx - velX) * 0.35;
+            velZ += (dz - velZ) * 0.35;
+        }
     }
 
     /** Оценка цели (меньше лучше) или -1, если цель не подходит. */
@@ -211,6 +239,8 @@ public class NeuralAimAssist extends Module {
         double ang = Math.toDegrees(Math.acos(dot));
         if (ang > fov.get() * 0.5 * fovMul) return -1;
         if (visibleOnly.get() && !p.canSee(le)) return -1;
+        if (priority.is("Дистанция")) return dist + ang * 0.05;
+        if (priority.is("Здоровье")) return le.getHealth() + ang * 0.1;
         return ang * 1.8 + dist;
     }
 
@@ -240,7 +270,7 @@ public class NeuralAimAssist extends Module {
         if (learn.get() && cand != null && uMag > 0.05 && now - lastSampleMs >= 50) {
             Vec3d eye = p.getCameraPosVec(tickDelta);
             Vec3d look = p.getRotationVec(1.0f);
-            float[] err = angles(p, eye, aimPoint(eye, look, cand, tickDelta), yaw, pitch);
+            float[] err = angles(p, eye, aimPoint(eye, look, cand, tickDelta, Vec3d.ZERO), yaw, pitch);
             double errMag = Math.sqrt(err[0] * err[0] + err[1] * err[1]);
             double spd = uMag / Math.max(dt, 0.004);
             boolean toward = (uy * err[0] + up * err[1]) > 0;
@@ -256,15 +286,26 @@ public class NeuralAimAssist extends Module {
 
         if (!aimActive || locked == null || !locked.isAlive() || locked.isRemoved()) {
             smPoint = null;
+            hasLastAng = false;
             return;
         }
 
         Vec3d eye = p.getCameraPosVec(tickDelta);
         Vec3d look = p.getRotationVec(1.0f);
-        Vec3d raw = aimPoint(eye, look, locked, tickDelta);
+
+        // упреждение: смещаем цель по её скорости (только по земле, не больше 1.2 блока)
+        double lead = leadMs.get() / 1000.0;
+        Vec3d off = new Vec3d(velX * lead, 0.0, velZ * lead);
+        double ol = off.length();
+        if (ol > 1.2) off = off.multiply(1.2 / ol);
+
+        Vec3d raw = aimPoint(eye, look, locked, tickDelta, off);
         if (smTarget != locked || smPoint == null) {
             smTarget = locked;
             smPoint = raw;
+            hasLastAng = false;
+            omegaY = 0.0;
+            omegaP = 0.0;
         } else {
             double a = 1.0 - Math.exp(-28.0 * dt);
             smPoint = smPoint.add(raw.subtract(smPoint).multiply(a));
@@ -273,6 +314,21 @@ public class NeuralAimAssist extends Module {
         float[] err = angles(p, eye, smPoint, yaw, pitch);
         float ey = err[0];
         float ep = err[1];
+        float ty = err[2];
+        float tp = err[3];
+
+        // угловая скорость цели относительно нас (без нашего собственного поворота)
+        if (hasLastAng) {
+            double wy = MathHelper.wrapDegrees(ty - lastTy) / Math.max(dt, 0.004);
+            double wp = (tp - lastTp) / Math.max(dt, 0.004);
+            double k2 = 1.0 - Math.exp(-dt / 0.06);
+            omegaY += (MathHelper.clamp(wy, -900.0, 900.0) - omegaY) * k2;
+            omegaP += (MathHelper.clamp(wp, -900.0, 900.0) - omegaP) * k2;
+        }
+        lastTy = ty;
+        lastTp = tp;
+        hasLastAng = true;
+
         double mag = Math.sqrt(ey * ey + ep * ep);
 
         if (now < reactUntil) {
@@ -315,12 +371,16 @@ public class NeuralAimAssist extends Module {
         }
 
         // мёртвая зона только для фиксированных точек: у режима "Ближайшая" ошибка и так 0 на теле
-        if (!hitbox.is("Ближайшая") && mag < deadZone.get()) return;
+        boolean nearestType = hitbox.is("Ближайшая") || hitbox.is("Умная");
+        if (!nearestType && mag < deadZone.get()) return;
         if (mag < 0.02) return;
 
         double fac = 1.0 - Math.exp(-k * dt * ramp * mouseF);
-        float sy = (float) (ey * fac);
-        float sp = (float) (ep * fac * (vertical.get() / 100.0));
+        double ff = (track.get() / 100.0) * ramp * mouseF;
+        // слежение работает только пока есть заметная ошибка: на теле прицел стоит
+        if (mag < 0.25) ff = 0.0;
+        float sy = (float) (ey * fac + omegaY * dt * ff);
+        float sp = (float) ((ep * fac + omegaP * dt * ff) * (vertical.get() / 100.0));
 
         // потолок скорости
         double step = Math.sqrt(sy * sy + sp * sp);
@@ -338,9 +398,9 @@ public class NeuralAimAssist extends Module {
     }
 
     /** Точка, в которую целимся. */
-    private Vec3d aimPoint(Vec3d eye, Vec3d look, LivingEntity t, float tickDelta) {
+    private Vec3d aimPoint(Vec3d eye, Vec3d look, LivingEntity t, float tickDelta, Vec3d off) {
         Vec3d lp = t.getLerpedPos(tickDelta);
-        Box box = t.getBoundingBox().offset(lp.subtract(t.getPos()));
+        Box box = t.getBoundingBox().offset(lp.subtract(t.getPos()).add(off));
         double cx = (box.minX + box.maxX) * 0.5;
         double cz = (box.minZ + box.maxZ) * 0.5;
         double h = box.maxY - box.minY;
@@ -351,8 +411,9 @@ public class NeuralAimAssist extends Module {
 
         // Ближайшая: если взгляд уже пересекает тело (с запасом от краёв), ничего не двигаем
         double mxz = Math.min(0.10, (box.maxX - box.minX) * 0.25);
-        double my = Math.min(0.12, h * 0.1);
-        Box inner = new Box(box.minX + mxz, box.minY + my, box.minZ + mxz, box.maxX - mxz, box.maxY - my, box.maxZ - mxz);
+        double lowY = box.minY + (hitbox.is("Умная") ? h * 0.45 : Math.min(0.12, h * 0.1));
+        double highY = hitbox.is("Умная") ? box.minY + h * 0.92 : box.maxY - Math.min(0.12, h * 0.1);
+        Box inner = new Box(box.minX + mxz, lowY, box.minZ + mxz, box.maxX - mxz, highY, box.maxZ - mxz);
         Optional<Vec3d> hit = inner.raycast(eye, eye.add(look.multiply(8.0)));
         if (hit.isPresent()) return hit.get();
 
@@ -369,7 +430,7 @@ public class NeuralAimAssist extends Module {
         double hd = Math.sqrt(d.x * d.x + d.z * d.z);
         float ty = (float) (Math.toDegrees(Math.atan2(d.z, d.x)) - 90.0);
         float tp = (float) -Math.toDegrees(Math.atan2(d.y, hd));
-        return new float[]{MathHelper.wrapDegrees(ty - yaw), tp - pitch};
+        return new float[]{MathHelper.wrapDegrees(ty - yaw), tp - pitch, ty, tp};
     }
 
     // ---------- сохранение выученного ----------
@@ -414,41 +475,4 @@ public class NeuralAimAssist extends Module {
         }
         frame(p, tickDelta);
 
-        if (!hud.get()) return;
-        if (samples != shownSamples) {
-            if (samples > shownSamples && shownSamples >= 0) flash = 1f;
-            shownSamples = samples;
-        }
-        flash *= 0.92f;
-
-        int x = 8;
-        int y = mc.getWindow().getScaledHeight() / 2 + 105;
-        int w = 168;
-        int h = 122;
-        RenderUtils.drawRoundedRect(c, x, y, x + w, y + h, 6, 0xAA0C0C14);
-        Fonts.draw(c, "НейроАим", x + 8, y + 6, 0xFFFFFFFF);
-        Fonts.draw(c, mode.get() + " · " + hitbox.get(), x + 8, y + 17, 0xFF8F86FF);
-
-        String big = String.valueOf(samples);
-        MatrixStack ms = c.getMatrices();
-        ms.push();
-        ms.translate(x + 8, y + 30, 0);
-        ms.scale(2.0f, 2.0f, 1f);
-        Fonts.draw(c, big, 0, 0, RenderUtils.lerp(0xFFFFFFFF, 0xFF4CE08A, flash));
-        ms.pop();
-        Fonts.draw(c, "сэмплов", x + 8 + Fonts.width(big) * 2 + 6, y + 40, 0xFF6E6E86);
-
-        bar(c, x + 8, y + 58, w - 16, (float) Math.min(1.0, samples / 300.0), "Обученность");
-        bar(c, x + 8, y + 74, w - 16, (float) MathHelper.clamp(learnedK / 20.0, 0.0, 1.0), "Твоя резкость");
-        Fonts.draw(c, why, x + 8, y + 98, 0xFFE0C070);
-    }
-
-    private void bar(DrawContext c, int x, int y, int w, float v, String label) {
-        float f = MathHelper.clamp(v, 0f, 1f);
-        Fonts.draw(c, label, x, y - 1, 0xFF6E6E86);
-        String pct = Math.round(f * 100) + "%";
-        Fonts.draw(c, pct, x + w - Fonts.width(pct), y - 1, 0xFF8F86FF);
-        RenderUtils.drawRoundedRect(c, x, y + 9, x + w, y + 12, 1, 0xFF22222E);
-        RenderUtils.drawRoundedRect(c, x, y + 9, x + Math.max(2, Math.round(w * f)), y + 12, 1, 0xFF7C6CFF);
-    }
-}
+     
