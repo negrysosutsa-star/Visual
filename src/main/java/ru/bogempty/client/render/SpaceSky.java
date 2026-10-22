@@ -111,7 +111,9 @@ public final class SpaceSky {
     private static NativeImageBackedTexture register(Identifier id, byte[] png) {
         try {
             NativeImage img = NativeImage.read(new ByteArrayInputStream(png));
-            NativeImageBackedTexture tex = new NativeImageBackedTexture(img);
+            // В 1.21.4 используется конструктор (width, height, useStb)
+            NativeImageBackedTexture tex = new NativeImageBackedTexture(img.getWidth(), img.getHeight(), true);
+            tex.setImage(img);
             tex.setFilter(true, false);
             MinecraftClient.getInstance().getTextureManager().registerTexture(id, tex);
             return tex;
@@ -470,6 +472,4 @@ public final class SpaceSky {
     // золотая звезда с лучами
     private static void star(float[] o, float u, float v, int seed) {
         float r = (float) Math.sqrt(u * u + v * v);
-        over(o, 1f, 0.72f, 0.25f, (float) Math.exp(-r * 4.5f) * 0.9f);
-        float au = Math.abs(u), av = Math.abs(v);
-        float cross = (float) M
+        over(o
