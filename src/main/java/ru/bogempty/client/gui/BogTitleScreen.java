@@ -33,8 +33,8 @@ import java.util.List;
  */
 public class BogTitleScreen extends Screen {
     // ===== поменяй под себя =====
-    private static final String CREATOR = "твой_ник";
-    private static final String TELEGRAM = "@твой_канал";
+    private static final String CREATOR = "BogEmpty";
+    private static final String TELEGRAM = "@BogEmptyy";
     private static final String DISCORD = "твой_дискорд";
     // ============================
 
