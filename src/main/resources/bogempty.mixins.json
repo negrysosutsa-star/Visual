@@ -3,7 +3,10 @@
   "minVersion": "0.8",
   "package": "ru.bogempty.client.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": [],
+  "mixins": [],
+  "client": [
+    "PlayerMoveC2SPacketMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
