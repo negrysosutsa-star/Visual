@@ -1,5 +1,8 @@
 package ru.bogempty.client.module;
 
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.util.InputUtil;
 import ru.bogempty.client.ClientExtras;
 import ru.bogempty.client.module.ai.AiTriggerBot;
 import ru.bogempty.client.module.ai.NeuralAimAssist;
@@ -25,9 +28,6 @@ import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
 import java.util.List;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.util.InputUtil;
 
 public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
@@ -74,7 +74,13 @@ public class ModuleManager {
         for (Module m : modules) {
             if (m.key == -1) continue;
             boolean pressed = InputUtil.isKeyPressed(handle, m.key);
-            if (pressed && !m.keyDown) m.toggle();
+            if (pressed && !m.keyDown) {
+                if (m.keyAction) {
+                    if (m.isEnabled()) m.onKey();
+                } else {
+                    m.toggle();
+                }
+            }
             m.keyDown = pressed;
         }
     }
