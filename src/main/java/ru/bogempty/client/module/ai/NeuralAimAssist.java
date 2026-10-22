@@ -1,5 +1,20 @@
 package ru.bogempty.client.module.ai;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.decoration.ArmorStandEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.math.Box;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 import ru.bogempty.client.friend.FriendManager;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
@@ -7,286 +22,402 @@ import ru.bogempty.client.render.Fonts;
 import ru.bogempty.client.render.RenderUtils;
 import ru.bogempty.client.setting.Setting;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.Vec3d;
 
 /**
- * Аим в духе SystemDLC: пружина + разгон, точка по телу, обучение под мышь.
+ * Аим без дёрганий. Наводка считается КАЖДЫЙ КАДР (а не раз в тик), по плавной экспоненте:
+ * без пружины и инерции, поэтому нет перелётов и дрожи. Если прицел уже на теле цели, он стоит.
+ * Мышь игрока имеет приоритет: пока ты крутишь мышь, аим уступает.
  */
 public class NeuralAimAssist extends Module {
 
     private final Setting.Mode mode = add(new Setting.Mode("Режим", "Ассист", "Легит", "Сайлент", "Только обучение"),
-            "Ассист — обычный. Легит — медленнее и мягче. Сайлент — почти не видно. Только обучение — не крутит.");
+            "Ассист — обычный. Легит — медленнее и мягче. Сайлент — совсем слабо. Только обучение — не крутит, только учится на тебе.");
+    private final Setting.Mode activation = add(new Setting.Mode("Активация", "Всегда", "При ЛКМ"),
+            "Всегда — ведёт, пока есть цель. При ЛКМ — только пока зажата атака.");
     private final Setting.Mode targets = add(new Setting.Mode("Цели", "Игроки", "Все"),
             "На кого вести.");
-    private final Setting.Mode hitbox = add(new Setting.Mode("Точка", "Тело", "Голова", "Ноги", "Рандом"),
-            "Куда целиться на модели.");
+    private final Setting.Mode hitbox = add(new Setting.Mode("Точка", "Ближайшая", "Грудь", "Голова", "Ноги"),
+            "Ближайшая — ведёт только пока прицел не на теле, потом стоит (самый ровный). Остальные — к выбранной точке тела.");
     private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 140, 1),
             "Конус захвата, градусы.");
     private final Setting.Num range = add(new Setting.Num("Дистанция", 4.8, 2.0, 6.0, 0.1),
-            "Макс. дистанция.");
-    private final Setting.Num speed = add(new Setting.Num("Скорость", 0.38, 0.08, 1.0, 0.01),
-            "Базовая сила пружины.");
-    private final Setting.Num damp = add(new Setting.Num("Демпфер", 0.78, 0.4, 0.95, 0.01),
-            "Гашение скорости. Выше = меньше инерции и дёрганий.");
-    private final Setting.Num accel = add(new Setting.Num("Разгон", 0.45, 0.1, 1.0, 0.01),
-            "Как быстро набирает скорость к цели.");
-    private final Setting.Num maxStep = add(new Setting.Num("Макс. шаг °", 4.2, 1.5, 10.0, 0.1),
-            "Потолок градусов за тик.");
-    private final Setting.Num sens = add(new Setting.Num("Чувств. рядом", 0.55, 0.15, 1.0, 0.05),
-            "Множитель скорости когда прицел уже близко к цели.");
-    private final Setting.Num missChance = add(new Setting.Num("Промах %", 6, 0, 30, 1),
-            "Шанс тик не вести (человечность).");
-    private final Setting.Num reactMin = add(new Setting.Num("Реакция от мс", 45, 0, 200, 5),
-            "Мин. задержка после появления в FOV.");
-    private final Setting.Num reactMax = add(new Setting.Num("Реакция до мс", 110, 0, 300, 5),
-            "Макс. задержка реакции.");
+            "Макс. дистанция до цели.");
+    private final Setting.Num speed = add(new Setting.Num("Скорость наводки", 9.0, 2.0, 30.0, 0.5),
+            "Как быстро подтягивает к цели. Больше — резче, меньше — мягче.");
+    private final Setting.Num maxSpeed = add(new Setting.Num("Макс. скорость °/с", 420, 90, 1200, 10),
+            "Потолок скорости поворота.");
+    private final Setting.Num vertical = add(new Setting.Num("Вертикаль %", 70, 10, 100, 5),
+            "Какую долю силы получает наводка вверх-вниз. Меньше — меньше дёрганий по высоте.");
+    private final Setting.Num startMs = add(new Setting.Num("Плавный старт мс", 140, 0, 600, 10),
+            "За сколько разгоняется после захвата цели.");
+    private final Setting.Num deadZone = add(new Setting.Num("Мёртвая зона °", 0.4, 0.0, 3.0, 0.1),
+            "Меньше этой ошибки не двигаем (для точек Грудь/Голова/Ноги).");
+    private final Setting.Num reactMin = add(new Setting.Num("Реакция от мс", 30, 0, 200, 5),
+            "Мин. задержка после захвата цели.");
+    private final Setting.Num reactMax = add(new Setting.Num("Реакция до мс", 90, 0, 300, 5),
+            "Макс. задержка после захвата цели.");
+    private final Setting.Bool respectMouse = add(new Setting.Bool("Уважать мышь", true),
+            "Когда крутишь мышь сам, аим уступает и возвращается плавно.");
     private final Setting.Bool learn = add(new Setting.Bool("Учиться на мне", true),
-            "Подстраивается под твою мышь.");
+            "Подстраивает скорость под то, как ты сам наводишься на цели.");
     private final Setting.Num learnStrength = add(new Setting.Num("Сила обучения", 0.75, 0.1, 1.0, 0.05),
-            "Вес твоего стиля после обучения.");
+            "Насколько сильно берётся твой стиль после накопления сэмплов.");
     private final Setting.Bool visibleOnly = add(new Setting.Bool("Только видимые", true),
             "Не вести сквозь стены.");
     private final Setting.Bool ignoreFriends = add(new Setting.Bool("Игнор друзей", true),
-            "Пропуск .friend.");
+            "Не вести на друзей из .friend.");
     private final Setting.Bool hud = add(new Setting.Bool("Панель", true),
-            "Сэмплы и обученность.");
+            "Сэмплы, обученность и состояние аима.");
     private final Setting.Bool resetLearn = add(new Setting.Bool("Сбросить обучение", false),
-            "Обнулить выученное.");
+            "Обнулить выученное (переключатель вернётся сам).");
 
-    private double learnedSpeed = 0.38;
-    private double learnedDamp = 0.78;
-    private int learnSamples = 0;
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    private LivingEntity locked = null;
-    private long seeSince = 0L;
+    // выученное
+    private double learnedK = 9.0;
+    private double learnedMax = 420.0;
+    private int samples = 0;
+    private int sinceSave = 0;
+
+    // цель
+    private LivingEntity cand = null;     // лучший кандидат (для обучения)
+    private LivingEntity locked = null;   // цель, на которую ведём
+    private boolean aimActive = false;
+    private long lockAt = 0L;
     private long reactUntil = 0L;
-    private float lastYaw, lastPitch;
-    private float velYaw, velPitch;
-    private float bodyOffset = 0.45f;
-    private long nextBodyShift = 0L;
+    private Vec3d smPoint = null;
+    private LivingEntity smTarget = null;
+
+    // кадр
+    private long lastNanos = 0L;
+    private boolean hasExp = false;
+    private float expYaw, expPitch;
+    private long lastUserMs = 0L;
+    private long lastSampleMs = 0L;
+
+    // панель
     private float flash = 0f;
     private int shownSamples = -1;
     private String why = "—";
 
     public NeuralAimAssist() {
-        super("NeuralAimAssist", "Аим SystemDLC-стиль с обучением", Category.AI);
+        super("NeuralAimAssist", "Плавный аим без дёрганий, учится на твоей мыши", Category.AI);
+        load();
     }
 
     @Override
+    public void onDisable() {
+        locked = null;
+        cand = null;
+        smPoint = null;
+        hasExp = false;
+        lastNanos = 0L;
+        save();
+    }
+
+    // ---------- раз в тик: выбор цели ----------
+    @Override
     public void onTick() {
         ClientPlayerEntity p = mc.player;
-        if (p == null || mc.world == null || mc.currentScreen != null) {
+        if (p == null || mc.world == null || mc.currentScreen != null || !p.isAlive()) {
             locked = null;
-            velYaw = velPitch = 0;
+            cand = null;
+            aimActive = false;
             why = "Нет мира";
             return;
         }
 
         if (resetLearn.get()) {
             resetLearn.value = false;
-            learnedSpeed = 0.38;
-            learnedDamp = 0.78;
-            learnSamples = 0;
+            learnedK = 9.0;
+            learnedMax = 420.0;
+            samples = 0;
+            save();
             why = "Обучение сброшено";
         }
 
-        if (learn.get()) samplePlayerAim(p);
+        long now = System.currentTimeMillis();
+
+        // лучший кандидат с гистерезисом, чтобы не прыгать между целями
+        LivingEntity best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (Entity e : mc.world.getEntities()) {
+            if (!(e instanceof LivingEntity le)) continue;
+            double s = score(p, le, 1.0, 1.0);
+            if (s >= 0 && s < bestScore) {
+                bestScore = s;
+                best = le;
+            }
+        }
+        if (cand != null && cand != best) {
+            double cs = score(p, cand, 1.15, 1.25);
+            if (cs >= 0 && (best == null || bestScore > cs * 0.6) && now - lockAt > 350) {
+                best = cand;
+            }
+        }
+        if (best != cand) {
+            cand = best;
+            lockAt = now;
+        }
 
         if (mode.is("Только обучение")) {
+            locked = null;
+            aimActive = false;
             why = "Только обучение";
             return;
         }
-
-        LivingEntity t = findTarget(p);
-        long now = System.currentTimeMillis();
-
-        if (t == null) {
+        if (activation.is("При ЛКМ") && !mc.options.attackKey.isPressed()) {
+            aimActive = false;
+            why = "Жду ЛКМ";
+            if (cand == null) locked = null;
+            return;
+        }
+        if (cand == null) {
             locked = null;
-            velYaw *= 0.55f;
-            velPitch *= 0.55f;
-            if (Math.abs(velYaw) < 0.02f) velYaw = 0;
-            if (Math.abs(velPitch) < 0.02f) velPitch = 0;
+            aimActive = false;
             why = "Нет цели";
             return;
         }
 
-        if (t != locked) {
-            locked = t;
-            seeSince = now;
+        if (cand != locked) {
+            locked = cand;
             int rmin = (int) reactMin.get();
             int rmax = Math.max(rmin, (int) reactMax.get());
-            if (learnSamples > 200) {
-                rmin = Math.max(25, rmin - 15);
-                rmax = Math.max(rmin + 20, rmax - 25);
-            }
             reactUntil = now + ThreadLocalRandom.current().nextInt(rmin, rmax + 1);
-            velYaw *= 0.25f;
-            velPitch *= 0.25f;
-            pickBodyOffset(true);
+            smPoint = null;
+        }
+        aimActive = true;
+    }
+
+    /** Оценка цели (меньше лучше) или -1, если цель не подходит. */
+    private double score(ClientPlayerEntity p, LivingEntity le, double rangeMul, double fovMul) {
+        if (le == p || !le.isAlive() || le.isSpectator() || le instanceof ArmorStandEntity) return -1;
+        if (le instanceof PlayerEntity pl) {
+            if (ignoreFriends.get() && FriendManager.isFriend(pl.getName().getString())) return -1;
+        } else if (!targets.is("Все")) {
+            return -1;
+        }
+        Vec3d eye = p.getEyePos();
+        Vec3d center = le.getBoundingBox().getCenter();
+        double dist = eye.distanceTo(center);
+        if (dist > range.get() * rangeMul) return -1;
+
+        Vec3d dir = center.subtract(eye).normalize();
+        double dot = MathHelper.clamp(p.getRotationVec(1.0f).dotProduct(dir), -1.0, 1.0);
+        double ang = Math.toDegrees(Math.acos(dot));
+        if (ang > fov.get() * 0.5 * fovMul) return -1;
+        if (visibleOnly.get() && !p.canSee(le)) return -1;
+        return ang * 1.8 + dist;
+    }
+
+    // ---------- каждый кадр: наводка ----------
+    private void frame(ClientPlayerEntity p, float tickDelta) {
+        long nowN = System.nanoTime();
+        float dt = lastNanos == 0L ? 0.016f : Math.min(0.05f, (nowN - lastNanos) / 1.0e9f);
+        lastNanos = nowN;
+        long now = System.currentTimeMillis();
+
+        float yaw = p.getYaw();
+        float pitch = p.getPitch();
+
+        // всё, что изменило взгляд кроме нас, это мышь игрока
+        float uy = 0f, up = 0f;
+        if (hasExp) {
+            uy = MathHelper.wrapDegrees(yaw - expYaw);
+            up = pitch - expPitch;
+        }
+        double uMag = Math.sqrt(uy * uy + up * up);
+        if (uMag > 0.02) lastUserMs = now;
+        expYaw = yaw;
+        expPitch = pitch;
+        hasExp = true;
+
+        // обучение: как быстро ты сам тянешь мышь к цели
+        if (learn.get() && cand != null && uMag > 0.05 && now - lastSampleMs >= 50) {
+            Vec3d eye = p.getCameraPosVec(tickDelta);
+            Vec3d look = p.getRotationVec(1.0f);
+            float[] err = angles(p, eye, aimPoint(eye, look, cand, tickDelta), yaw, pitch);
+            double errMag = Math.sqrt(err[0] * err[0] + err[1] * err[1]);
+            double spd = uMag / Math.max(dt, 0.004);
+            boolean toward = (uy * err[0] + up * err[1]) > 0;
+            if (toward && errMag > 4.0 && errMag < 45.0 && spd > 30.0 && spd < 1500.0) {
+                double k = MathHelper.clamp(spd / errMag, 2.0, 40.0);
+                learnedK = learnedK * 0.97 + k * 0.03;
+                if (spd > learnedMax * 0.7) learnedMax = MathHelper.clamp(learnedMax * 0.9 + spd * 0.1, 120.0, 1100.0);
+                samples++;
+                lastSampleMs = now;
+                if (++sinceSave >= 200) save();
+            }
         }
 
-        if (now >= nextBodyShift) pickBodyOffset(false);
+        if (!aimActive || locked == null || !locked.isAlive() || locked.isRemoved()) {
+            smPoint = null;
+            return;
+        }
+
+        Vec3d eye = p.getCameraPosVec(tickDelta);
+        Vec3d look = p.getRotationVec(1.0f);
+        Vec3d raw = aimPoint(eye, look, locked, tickDelta);
+        if (smTarget != locked || smPoint == null) {
+            smTarget = locked;
+            smPoint = raw;
+        } else {
+            double a = 1.0 - Math.exp(-28.0 * dt);
+            smPoint = smPoint.add(raw.subtract(smPoint).multiply(a));
+        }
+
+        float[] err = angles(p, eye, smPoint, yaw, pitch);
+        float ey = err[0];
+        float ep = err[1];
+        double mag = Math.sqrt(ey * ey + ep * ep);
 
         if (now < reactUntil) {
             why = "Реакция…";
             return;
         }
-        if (ThreadLocalRandom.current().nextDouble() * 100.0 < missChance.get()) {
-            why = "Промах";
-            return;
-        }
 
-        aimSpring(p, t);
-        why = "Веду: " + t.getName().getString();
-    }
-
-    private void pickBodyOffset(boolean force) {
-        long now = System.currentTimeMillis();
-        if (!force && now < nextBodyShift) return;
-        nextBodyShift = now + 180 + ThreadLocalRandom.current().nextInt(220);
-
-        switch (hitbox.get()) {
-            case "Голова" -> bodyOffset = 0.88f + ThreadLocalRandom.current().nextFloat() * 0.08f;
-            case "Ноги" -> bodyOffset = 0.18f + ThreadLocalRandom.current().nextFloat() * 0.12f;
-            case "Рандом" -> bodyOffset = 0.25f + ThreadLocalRandom.current().nextFloat() * 0.6f;
-            default -> bodyOffset = 0.42f + ThreadLocalRandom.current().nextFloat() * 0.22f; // тело
-        }
-    }
-
-    private void samplePlayerAim(ClientPlayerEntity p) {
-        float dy = MathHelper.wrapDegrees(p.getYaw() - lastYaw);
-        float dp = p.getPitch() - lastPitch;
-        lastYaw = p.getYaw();
-        lastPitch = p.getPitch();
-
-        double mag = Math.sqrt(dy * dy + dp * dp);
-        if (mag < 0.08 || mag > 24.0) return;
-
-        // скорость мыши → пружина
-        double s = MathHelper.clamp(mag / 14.0, 0.1, 0.95);
-        double d = MathHelper.clamp(1.0 - mag / 30.0, 0.55, 0.9);
-        learnedSpeed = learnedSpeed * 0.986 + s * 0.014;
-        learnedDamp = learnedDamp * 0.99 + d * 0.01;
-        learnSamples++;
-    }
-
-    private void aimSpring(ClientPlayerEntity p, LivingEntity t) {
-        Vec3d eye = p.getEyePos();
-        Vec3d point = t.getPos().add(0.0, t.getHeight() * bodyOffset, 0.0);
-
-        // лёгкий предикт по скорости цели (SystemDLC-вайб)
-        Vec3d vel = t.getVelocity();
-        point = point.add(vel.x * 0.08, vel.y * 0.03, vel.z * 0.08);
-
-        Vec3d diff = point.subtract(eye);
-        double dist = diff.length();
-        if (dist < 1e-4) return;
-
-        float targetYaw = (float) (MathHelper.atan2(diff.z, diff.x) * (180.0 / Math.PI)) - 90f;
-        float targetPitch = (float) (-(MathHelper.atan2(diff.y, Math.sqrt(diff.x * diff.x + diff.z * diff.z)) * (180.0 / Math.PI)));
-
-        float yaw = p.getYaw();
-        float pitch = p.getPitch();
-        float errYaw = MathHelper.wrapDegrees(targetYaw - yaw);
-        float errPitch = targetPitch - pitch;
-        float err = (float) Math.sqrt(errYaw * errYaw + errPitch * errPitch);
-
-        double spd = speed.get();
-        double damping = damp.get();
-        double acc = accel.get();
-
-        if (learn.get() && learnSamples > 40) {
-            double k = learnStrength.get() * Math.min(1.0, learnSamples / 280.0);
-            spd = spd * (1.0 - k) + learnedSpeed * k;
-            damping = damping * (1.0 - k) + learnedDamp * k;
-        }
-
-        // режим
+        // параметры + режим + выученный стиль
+        double k = speed.get();
+        double cap = maxSpeed.get();
         if (mode.is("Легит")) {
-            spd *= 0.55;
-            damping = Math.min(0.92, damping + 0.08);
-            acc *= 0.7;
+            k *= 0.6;
+            cap *= 0.65;
         } else if (mode.is("Сайлент")) {
-            spd *= 0.22;
-            damping = Math.min(0.94, damping + 0.1);
+            k *= 0.35;
+            cap *= 0.4;
+        }
+        if (learn.get() && samples >= 60) {
+            double m = learnStrength.get() * Math.min(1.0, samples / 300.0);
+            k = MathHelper.lerp(m, k, learnedK);
+            cap = MathHelper.lerp(m, cap, learnedMax);
         }
 
-        // ближе к центру — медленнее (как живой)
-        float near = (float) sens.get();
-        if (err < 12f) spd *= MathHelper.lerp(err / 12f, near, 1.0);
-        if (err < 2.5f) spd *= 0.45;
-
-        // дистанция
-        spd *= MathHelper.clamp(1.15 - dist / range.get(), 0.4, 1.0);
-
-        // пружина: ускоряемся к ошибке, гасим скорость
-        float forceYaw = (float) (errYaw * spd * acc);
-        float forcePitch = (float) (errPitch * spd * acc);
-        velYaw = (float) ((velYaw + forceYaw) * damping);
-        velPitch = (float) ((velPitch + forcePitch) * damping);
-
-        float cap = (float) maxStep.get();
-        if (learnSamples > 250) cap = Math.min(cap + 1.0f, 7.0f);
-        velYaw = MathHelper.clamp(velYaw, -cap, cap);
-        velPitch = MathHelper.clamp(velPitch, -cap, cap);
-
-        // мёртвая зона — не дрожим
-        if (Math.abs(errYaw) < 0.2f) velYaw = 0;
-        if (Math.abs(errPitch) < 0.2f) velPitch = 0;
-
-        p.setYaw(yaw + velYaw);
-        p.setPitch(MathHelper.clamp(pitch + velPitch, -90f, 90f));
-    }
-
-    private LivingEntity findTarget(ClientPlayerEntity p) {
-        LivingEntity best = null;
-        double bestScore = Double.MAX_VALUE;
-        Vec3d eye = p.getEyePos();
-        double fovHalf = fov.get() / 2.0;
-
-        for (Entity e : mc.world.getEntities()) {
-            if (!(e instanceof LivingEntity le) || le == p || !le.isAlive()) continue;
-
-            if (le instanceof PlayerEntity pl) {
-                if (!(targets.is("Игроки") || targets.is("Все"))) continue;
-                if (ignoreFriends.get() && FriendManager.isFriend(pl.getName().getString())) continue;
-            } else if (!targets.is("Все")) {
-                continue;
-            }
-
-            double d = eye.distanceTo(le.getBoundingBox().getCenter());
-            if (d > range.get()) continue;
-
-            Vec3d diff = le.getBoundingBox().getCenter().subtract(eye).normalize();
-            double dot = p.getRotationVec(1f).dotProduct(diff);
-            double ang = Math.toDegrees(Math.acos(MathHelper.clamp(dot, -1, 1)));
-            if (ang > fovHalf) continue;
-            if (visibleOnly.get() && !p.canSee(le)) continue;
-
-            double score = ang * 1.8 + d;
-            if (score < bestScore) {
-                bestScore = score;
-                best = le;
-            }
+        // плавный старт после захвата
+        double ramp = 1.0;
+        double sMs = startMs.get();
+        if (sMs > 0) {
+            double x = MathHelper.clamp((now - reactUntil) / sMs, 0.0, 1.0);
+            ramp = x * x * (3.0 - 2.0 * x);
         }
-        return best;
+
+        // уступаем мыши игрока
+        double mouseF = 1.0;
+        if (respectMouse.get() && now - lastUserMs < 260) {
+            double x = (now - lastUserMs) / 260.0;
+            mouseF = 0.12 + 0.88 * x * x;
+            why = "Мышь: уступаю";
+        } else {
+            why = "Веду: " + locked.getName().getString();
+        }
+
+        // мёртвая зона только для фиксированных точек: у режима "Ближайшая" ошибка и так 0 на теле
+        if (!hitbox.is("Ближайшая") && mag < deadZone.get()) return;
+        if (mag < 0.02) return;
+
+        double fac = 1.0 - Math.exp(-k * dt * ramp * mouseF);
+        float sy = (float) (ey * fac);
+        float sp = (float) (ep * fac * (vertical.get() / 100.0));
+
+        // потолок скорости
+        double step = Math.sqrt(sy * sy + sp * sp);
+        double maxStep = cap * dt * Math.max(0.2, mouseF);
+        if (step > maxStep && step > 1e-6) {
+            float s = (float) (maxStep / step);
+            sy *= s;
+            sp *= s;
+        }
+
+        // через changeLookDirection камера не интерполируется и нет рывков между тиками
+        p.changeLookDirection(sy / 0.15, sp / 0.15);
+        expYaw = p.getYaw();
+        expPitch = p.getPitch();
     }
 
+    /** Точка, в которую целимся. */
+    private Vec3d aimPoint(Vec3d eye, Vec3d look, LivingEntity t, float tickDelta) {
+        Vec3d lp = t.getLerpedPos(tickDelta);
+        Box box = t.getBoundingBox().offset(lp.subtract(t.getPos()));
+        double cx = (box.minX + box.maxX) * 0.5;
+        double cz = (box.minZ + box.maxZ) * 0.5;
+        double h = box.maxY - box.minY;
+
+        if (hitbox.is("Голова")) return new Vec3d(cx, box.minY + h * 0.90, cz);
+        if (hitbox.is("Грудь")) return new Vec3d(cx, box.minY + h * 0.68, cz);
+        if (hitbox.is("Ноги")) return new Vec3d(cx, box.minY + h * 0.22, cz);
+
+        // Ближайшая: если взгляд уже пересекает тело (с запасом от краёв), ничего не двигаем
+        double mxz = Math.min(0.10, (box.maxX - box.minX) * 0.25);
+        double my = Math.min(0.12, h * 0.1);
+        Box inner = new Box(box.minX + mxz, box.minY + my, box.minZ + mxz, box.maxX - mxz, box.maxY - my, box.maxZ - mxz);
+        Optional<Vec3d> hit = inner.raycast(eye, eye.add(look.multiply(8.0)));
+        if (hit.isPresent()) return hit.get();
+
+        double d = eye.distanceTo(box.getCenter());
+        Vec3d ray = eye.add(look.multiply(d));
+        return new Vec3d(
+                MathHelper.clamp(ray.x, inner.minX, inner.maxX),
+                MathHelper.clamp(ray.y, inner.minY, inner.maxY),
+                MathHelper.clamp(ray.z, inner.minZ, inner.maxZ));
+    }
+
+    private float[] angles(ClientPlayerEntity p, Vec3d eye, Vec3d point, float yaw, float pitch) {
+        Vec3d d = point.subtract(eye);
+        double hd = Math.sqrt(d.x * d.x + d.z * d.z);
+        float ty = (float) (Math.toDegrees(Math.atan2(d.z, d.x)) - 90.0);
+        float tp = (float) -Math.toDegrees(Math.atan2(d.y, hd));
+        return new float[]{MathHelper.wrapDegrees(ty - yaw), tp - pitch};
+    }
+
+    // ---------- сохранение выученного ----------
+    private static Path file() {
+        return FabricLoader.getInstance().getConfigDir().resolve("bogempty_aim.json");
+    }
+
+    private void save() {
+        sinceSave = 0;
+        try {
+            JsonObject o = new JsonObject();
+            o.addProperty("k", learnedK);
+            o.addProperty("max", learnedMax);
+            o.addProperty("samples", samples);
+            Files.writeString(file(), GSON.toJson(o));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void load() {
+        try {
+            Path f = file();
+            if (!Files.exists(f)) return;
+            JsonObject o = JsonParser.parseString(Files.readString(f)).getAsJsonObject();
+            if (o.has("k")) learnedK = MathHelper.clamp(o.get("k").getAsDouble(), 2.0, 40.0);
+            if (o.has("max")) learnedMax = MathHelper.clamp(o.get("max").getAsDouble(), 120.0, 1100.0);
+            if (o.has("samples")) samples = o.get("samples").getAsInt();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---------- кадр и панель ----------
     @Override
     public void onRender2D(DrawContext c, float tickDelta) {
-        if (!hud.get() || mc.player == null) return;
+        ClientPlayerEntity p = mc.player;
+        if (p == null || mc.world == null || mc.currentScreen != null) {
+            hasExp = false;
+            lastNanos = 0L;
+            return;
+        }
+        frame(p, tickDelta);
 
-        if (learnSamples != shownSamples) {
-            if (learnSamples > shownSamples && shownSamples >= 0) flash = 1f;
-            shownSamples = learnSamples;
+        if (!hud.get()) return;
+        if (samples != shownSamples) {
+            if (samples > shownSamples && shownSamples >= 0) flash = 1f;
+            shownSamples = samples;
         }
         flash *= 0.92f;
 
@@ -298,7 +429,7 @@ public class NeuralAimAssist extends Module {
         Fonts.draw(c, "НейроАим", x + 8, y + 6, 0xFFFFFFFF);
         Fonts.draw(c, mode.get() + " · " + hitbox.get(), x + 8, y + 17, 0xFF8F86FF);
 
-        String big = String.valueOf(learnSamples);
+        String big = String.valueOf(samples);
         MatrixStack ms = c.getMatrices();
         ms.push();
         ms.translate(x + 8, y + 30, 0);
@@ -307,9 +438,8 @@ public class NeuralAimAssist extends Module {
         ms.pop();
         Fonts.draw(c, "сэмплов", x + 8 + Fonts.width(big) * 2 + 6, y + 40, 0xFF6E6E86);
 
-        float mat = (float) Math.min(1.0, learnSamples / 400.0);
-        bar(c, x + 8, y + 58, w - 16, mat, "Обученность");
-        bar(c, x + 8, y + 74, w - 16, (float) MathHelper.clamp(learnedDamp, 0, 1), "Плавность стиля");
+        bar(c, x + 8, y + 58, w - 16, (float) Math.min(1.0, samples / 300.0), "Обученность");
+        bar(c, x + 8, y + 74, w - 16, (float) MathHelper.clamp(learnedK / 20.0, 0.0, 1.0), "Твоя резкость");
         Fonts.draw(c, why, x + 8, y + 98, 0xFFE0C070);
     }
 
