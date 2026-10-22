@@ -1,126 +1,201 @@
 package ru.bogempty.client.module.combat;
 
-import ru.bogempty.client.module.Category;
-import ru.bogempty.client.module.Module;
-import ru.bogempty.client.setting.Setting;
-
-import java.util.concurrent.ThreadLocalRandom;
+import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.screen.slot.SlotActionType;
 import org.lwjgl.glfw.GLFW;
+import ru.bogempty.client.module.Category;
+import ru.bogempty.client.module.Module;
+import ru.bogempty.client.render.Fonts;
+import ru.bogempty.client.render.RenderUtils;
+import ru.bogempty.client.setting.Setting;
 
+import java.util.Locale;
+
+/**
+ * Свап по клавише. Клавиша модуля (СКМ по модулю в меню) НЕ включает его, а делает свап.
+ * Включи модуль в меню, назначь клавишу и жми её в игре.
+ */
 public class AutoSwap extends Module {
+    private static final String[] ITEMS = {
+            "Тотем", "Сфера", "Талисман", "Щит", "Золотое яблоко", "Жемчуг Эндера", "Кристалл Энда"
+    };
 
     private final Setting.Mode mode = add(new Setting.Mode("Режим",
-            "Сфера на сферу", "Тотем на тотем", "Сфера на тотем"),
-            "Что менять.");
-    private final Setting.Bool onKey = add(new Setting.Bool("По клавише", true),
-            "Свап только по бинду ниже.");
-    private final Setting.Num swapKey = add(new Setting.Num("Бинд (GLFW)", GLFW.GLFW_KEY_X, 0, 400, 1),
-            "Код клавиши GLFW. В ClickGui зажми модуль-биндом или поставь сюда код (X=88).");
-    private final Setting.Num delay = add(new Setting.Num("Задержка", 1, 0, 6, 1),
-            "Тики между кликами.");
+            "Оффхенд A⇄B", "Рука A⇄B", "Только A в оффхенд"),
+            "Оффхенд A⇄B: в левую руку то A, то B. Рука A⇄B: в основную руку то A, то B. Только A в оффхенд: всегда A.");
+    private final Setting.Mode itemA = add(new Setting.Mode("Предмет A", ITEMS),
+            "Первый предмет. Тотем — обычный тотем. Сфера и Талисман ищутся по названию предмета.");
+    private final Setting.Mode itemB = add(new Setting.Mode("Предмет B", ITEMS),
+            "Второй предмет для обмена.");
+    private final Setting.Num delay = add(new Setting.Num("Задержка, тики", 0, 0, 5, 1),
+            "Через сколько тиков после нажатия сделать свап.");
     private final Setting.Bool preferHotbar = add(new Setting.Bool("Сначала хотбар", true),
-            "Искать сначала в хотбаре.");
+            "Искать предмет сначала в хотбаре, потом в инвентаре.");
+    private final Setting.Bool toastOn = add(new Setting.Bool("Уведомление", true),
+            "Показывать на экране, что именно было свапнуто.");
 
-    private int cooldown = 0;
-    private boolean keyWasDown = false;
+    private int pending = -1;
+    private String toast = "";
+    private long toastUntil = 0L;
 
     public AutoSwap() {
-        super("AutoSwap", "Свап сфер и тотемов", Category.COMBAT);
+        super("AutoSwap", "Свап предметов по клавише (тотем, сфера, талисман и др.)", Category.COMBAT);
+        keyAction = true;
         key = GLFW.GLFW_KEY_X;
+        itemB.index = 1;
+    }
+
+    @Override
+    public void onKey() {
+        pending = (int) delay.get();
+    }
+
+    @Override
+    public void onDisable() {
+        pending = -1;
     }
 
     @Override
     public void onTick() {
         ClientPlayerEntity p = mc.player;
-        if (p == null || mc.interactionManager == null || mc.currentScreen != null) return;
-
-        if (cooldown > 0) {
-            cooldown--;
+        if (p == null || mc.interactionManager == null || mc.currentScreen != null) {
+            pending = -1;
             return;
         }
+        if (pending < 0) return;
+        if (pending > 0) {
+            pending--;
+            return;
+        }
+        pending = -1;
+        run(p);
+    }
 
-        int k = (int) swapKey.get();
-        if (k <= 0) k = key > 0 ? key : GLFW.GLFW_KEY_X;
+    private void run(ClientPlayerEntity p) {
+        String a = itemA.get();
+        String b = itemB.get();
 
-        boolean pressed = GLFW.glfwGetKey(mc.getWindow().getHandle(), k) == GLFW.GLFW_PRESS;
-
-        if (onKey.get()) {
-            if (!pressed || keyWasDown) {
-                keyWasDown = pressed;
+        if (mode.is("Только A в оффхенд")) {
+            if (matches(p.getOffHandStack(), a)) {
+                say("Уже в оффхенде: " + a);
                 return;
             }
-            keyWasDown = true;
-        } else if (!shouldAuto(p)) {
+            toOffhand(p, a);
             return;
         }
 
-        doSwap(p);
-        cooldown = (int) delay.get() + ThreadLocalRandom.current().nextInt(0, 2);
-    }
-
-    private boolean shouldAuto(ClientPlayerEntity p) {
-        ItemStack main = p.getMainHandStack();
-        ItemStack off = p.getOffHandStack();
-        return switch (mode.get()) {
-            case "Сфера на сферу" -> !main.isOf(Items.END_CRYSTAL) && has(p, Items.END_CRYSTAL);
-            case "Тотем на тотем" -> !off.isOf(Items.TOTEM_OF_UNDYING) && has(p, Items.TOTEM_OF_UNDYING);
-            case "Сфера на тотем" -> main.isOf(Items.END_CRYSTAL) && has(p, Items.TOTEM_OF_UNDYING);
-            default -> false;
-        };
-    }
-
-    private void doSwap(ClientPlayerEntity p) {
-        switch (mode.get()) {
-            case "Сфера на сферу" -> swapItem(p, Items.END_CRYSTAL, false);
-            case "Тотем на тотем" -> swapItem(p, Items.TOTEM_OF_UNDYING, true);
-            case "Сфера на тотем" -> {
-                if (!p.getOffHandStack().isOf(Items.TOTEM_OF_UNDYING)) {
-                    int t = find(p, Items.TOTEM_OF_UNDYING);
-                    if (t != -1) clickSwap(t, 45);
-                }
-            }
-            default -> {}
+        if (mode.is("Рука A⇄B")) {
+            String want = matches(p.getMainHandStack(), a) ? b : a;
+            toMainHand(p, want);
+            return;
         }
+
+        // Оффхенд A⇄B: если там A, кладём B, иначе A
+        String want = matches(p.getOffHandStack(), a) ? b : a;
+        toOffhand(p, want);
     }
 
-    private void swapItem(ClientPlayerEntity p, Item item, boolean toOffhand) {
-        int targetSlot = toOffhand ? 45 : p.getInventory().selectedSlot + 36;
-        ItemStack cur = toOffhand ? p.getOffHandStack() : p.getMainHandStack();
-        if (cur.isOf(item)) return;
-        int from = find(p, item);
-        if (from == -1) return;
-        clickSwap(from, targetSlot);
-    }
-
-    private int find(PlayerEntity p, Item item) {
-        int start = preferHotbar.get() ? 0 : 9;
-        int end = preferHotbar.get() ? 9 : 36;
-        for (int i = start; i < end; i++) {
-            if (p.getInventory().getStack(i).isOf(item)) return i < 9 ? i + 36 : i;
+    private void toOffhand(ClientPlayerEntity p, String want) {
+        if (matches(p.getOffHandStack(), want)) {
+            say("Уже в оффхенде: " + want);
+            return;
         }
-        for (int i = 0; i < 36; i++) {
-            if (p.getInventory().getStack(i).isOf(item)) return i < 9 ? i + 36 : i;
+        int slot = find(p, want, false);
+        if (slot == -1) {
+            say("Нет предмета: " + want);
+            return;
+        }
+        // один клик SWAP с кнопкой 40 меняет слот и оффхенд местами
+        click(p, slot, 40);
+        say("Оффхенд: " + want);
+    }
+
+    private void toMainHand(ClientPlayerEntity p, String want) {
+        if (matches(p.getMainHandStack(), want)) {
+            say("Уже в руке: " + want);
+            return;
+        }
+        int slot = find(p, want, true);
+        if (slot == -1) {
+            say("Нет предмета: " + want);
+            return;
+        }
+        if (slot >= 36) {
+            // предмет в хотбаре: просто выбираем слот
+            p.getInventory().selectedSlot = slot - 36;
+        } else {
+            // предмет в инвентаре: меняем с выбранным слотом хотбара
+            click(p, slot, p.getInventory().selectedSlot);
+        }
+        say("В руке: " + want);
+    }
+
+    /** Ищет предмет. Возвращает id слота в PlayerScreenHandler: 9..35 инвентарь, 36..44 хотбар. */
+    private int find(ClientPlayerEntity p, String want, boolean hotbarFirstForced) {
+        boolean hotbarFirst = hotbarFirstForced || preferHotbar.get();
+        if (hotbarFirst) {
+            for (int i = 0; i < 9; i++) if (matches(p.getInventory().getStack(i), want)) return 36 + i;
+            for (int i = 9; i < 36; i++) if (matches(p.getInventory().getStack(i), want)) return i;
+        } else {
+            for (int i = 9; i < 36; i++) if (matches(p.getInventory().getStack(i), want)) return i;
+            for (int i = 0; i < 9; i++) if (matches(p.getInventory().getStack(i), want)) return 36 + i;
         }
         return -1;
     }
 
-    private boolean has(PlayerEntity p, Item item) {
-        return find(p, item) != -1;
+    private void click(ClientPlayerEntity p, int slot, int button) {
+        mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slot, button, SlotActionType.SWAP, p);
     }
 
-    private void clickSwap(int from, int to) {
-        if (mc.interactionManager == null || mc.player == null) return;
-        int sync = mc.player.currentScreenHandler.syncId;
-        mc.interactionManager.clickSlot(sync, from, 0, SlotActionType.PICKUP, mc.player);
-        mc.interactionManager.clickSlot(sync, to, 0, SlotActionType.PICKUP, mc.player);
-        if (!mc.player.currentScreenHandler.getCursorStack().isEmpty()) {
-            mc.interactionManager.clickSlot(sync, from, 0, SlotActionType.PICKUP, mc.player);
+    private static String plainName(ItemStack s) {
+        return s.getName().getString().toLowerCase(Locale.ROOT).replaceAll("§.", "");
+    }
+
+    private static boolean matches(ItemStack s, String option) {
+        if (s == null || s.isEmpty()) return false;
+        switch (option) {
+            case "Тотем": {
+                String n = plainName(s);
+                return s.isOf(Items.TOTEM_OF_UNDYING) && !n.contains("сфер") && !n.contains("талисман");
+            }
+            case "Сфера":
+                return plainName(s).contains("сфер");
+            case "Талисман":
+                return plainName(s).contains("талисман");
+            case "Щит":
+                return s.isOf(Items.SHIELD);
+            case "Золотое яблоко":
+                return s.isOf(Items.GOLDEN_APPLE) || s.isOf(Items.ENCHANTED_GOLDEN_APPLE);
+            case "Жемчуг Эндера":
+                return s.isOf(Items.ENDER_PEARL);
+            case "Кристалл Энда":
+                return s.isOf(Items.END_CRYSTAL);
+            default:
+                return false;
         }
+    }
+
+    private void say(String s) {
+        toast = s;
+        toastUntil = System.currentTimeMillis() + 1400L;
+    }
+
+    @Override
+    public void onRender2D(DrawContext c, float tickDelta) {
+        if (!toastOn.get()) return;
+        long left = toastUntil - System.currentTimeMillis();
+        if (left <= 0 || toast.isEmpty()) return;
+        float a = Math.min(1f, left / 400f);
+        int w = c.getScaledWindowWidth();
+        int h = c.getScaledWindowHeight();
+        int tw = Fonts.width(toast);
+        int x = (w - tw) / 2;
+        int y = h - 62;
+        RenderUtils.drawRoundedRect(c, x - 8, y - 4, x + tw + 8, y + 13, 5, RenderUtils.alpha(0xCC0C0C14, a));
+        RenderUtils.drawRect(c, x - 8, y + 12, x + tw + 8, y + 13, RenderUtils.alpha(0xFF7C6CFF, a));
+        Fonts.draw(c, toast, x, y, RenderUtils.alpha(0xFFFFFFFF, a));
     }
 }
