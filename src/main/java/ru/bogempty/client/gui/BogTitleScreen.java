@@ -61,9 +61,7 @@ public class BogTitleScreen extends Screen {
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         time += delta * 0.02f;
 
-        // фон космос
         context.fill(0, 0, width, height, 0xFF05050C);
-        // градиент пятна
         RenderUtils.drawRoundedRect(context, width / 2 - 200, height / 2 - 120, width / 2 + 200, height / 2 + 160, 40, 0x221A1040);
         RenderUtils.drawRoundedRect(context, 40, 40, 220, 180, 50, 0x187C6CFF);
         RenderUtils.drawRoundedRect(context, width - 240, height - 200, width - 20, height - 40, 60, 0x146C40A0);
@@ -76,7 +74,6 @@ public class BogTitleScreen extends Screen {
             context.fill(sx, sy, sx + 1, sy + 1, col);
         }
 
-        // лого
         String title = "BOGEMPTY";
         int tw = Fonts.width(title);
         Fonts.draw(context, title, width / 2 - tw / 2, height / 2 - 70, 0xFFB8B0FF);
@@ -85,8 +82,6 @@ public class BogTitleScreen extends Screen {
         Fonts.draw(context, sub, width / 2 - sw / 2, height / 2 - 56, 0xFF7C6CFF);
 
         super.render(context, mouseX, mouseY, delta);
-
-        Fonts.draw(context, "§7FunTime ready", 8, height - 14, 0xFF6E6E86);
     }
 
     @Override
