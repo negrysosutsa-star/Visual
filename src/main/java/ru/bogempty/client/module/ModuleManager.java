@@ -19,8 +19,8 @@ import ru.bogempty.client.module.movement.SprintReset;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.FullBright;
+import ru.bogempty.client.module.visual.Nametags;
 import ru.bogempty.client.module.visual.NoRender;
-import ru.bogempty.client.module.visual.TargetEsp;
 import ru.bogempty.client.module.visual.Zoom;
 
 import java.util.ArrayList;
@@ -33,25 +33,21 @@ public class ModuleManager {
     public final List<Module> modules = new ArrayList<>();
 
     public ModuleManager() {
-        // Combat
         modules.add(new TriggerBot());
         modules.add(new AutoTotem());
         modules.add(new AutoSwap());
 
-        // Movement
         modules.add(new AutoSprint());
         modules.add(new ShiftTap());
         modules.add(new SprintReset());
 
-        // Visual
         modules.add(new FullBright());
         modules.add(new Zoom());
         modules.add(new CustomSky());
         modules.add(new NoRender());
         modules.add(new CustomCrosshair());
-        modules.add(new TargetEsp());
+        modules.add(new Nametags());
 
-        // HUD
         modules.add(new Watermark());
         modules.add(new InfoHud());
         modules.add(new Keystrokes());
@@ -60,7 +56,6 @@ public class ModuleManager {
         modules.add(new ArrayListModule());
         modules.add(new GpsHud());
 
-        // Ai
         modules.add(new AiTriggerBot());
         modules.add(new NeuralAimAssist());
 
