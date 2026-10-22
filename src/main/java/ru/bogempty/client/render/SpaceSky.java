@@ -9,19 +9,27 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.util.Identifier;
 
 import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Космическое небо без миксинов: миру подменяется тип неба на "Энд",
- * а текстура неба Энда заменяется на сгенерированную (галактика, туманность и т.д.).
+ * Космическое небо.
+ * Стили-планеты («Планеты», «Чёрная дыра», «Неон», «Шар-туманность», «Земля»): заменяют текстуры солнца и луны
+ * на большие яркие светила, ночью вокруг обычные звёзды. Это самый яркий вариант.
+ * Стили-Энд («Галактика» и др.): подменяют небо на небо Энда с нарисованной текстурой. Ваниль делает его тусклым.
  */
 public final class SpaceSky {
     private static final Identifier END_SKY = Identifier.of("minecraft", "textures/environment/end_sky.png");
+    private static final Identifier SUN = Identifier.of("minecraft", "textures/environment/sun.png");
+    private static final Identifier MOON = Identifier.of("minecraft", "textures/environment/moon_phases.png");
+    private static final Set<String> END_STYLES = Set.of("Галактика", "Туманность", "Звёздный рой", "Космический закат", "Аврора");
     private static final int SIZE = 512;
 
     private static final ExecutorService POOL = Executors.newSingleThreadExecutor(r -> {
@@ -30,7 +38,7 @@ public final class SpaceSky {
         return t;
     });
 
-    private record Ready(String key, byte[] png) {}
+    private record Ready(String key, byte[] end, byte[] sun, byte[] moon) {}
 
     private static DimensionEffects endFx;
     private static Field fxField;
@@ -41,21 +49,28 @@ public final class SpaceSky {
 
     private static volatile String requestedKey = "";
     private static volatile Ready ready;
-    private static NativeImageBackedTexture current;
+    private static NativeImageBackedTexture tEnd, tSun, tMoon;
     private static boolean active = false;
     private static int checkTimer = 0;
 
     public static void update(ClientWorld world, String style, int density, int sat, int variant) {
         active = true;
-        swapEffects(world);
+        final boolean end = END_STYLES.contains(style);
+        if (end) swapEffects(world);
+        else unswapEffects();
 
         final String key = style + "|" + density + "|" + sat + "|" + variant;
         if (!key.equals(requestedKey)) {
             requestedKey = key;
             POOL.execute(() -> {
                 try {
-                    byte[] png = generate(style, density, sat, variant);
-                    if (key.equals(requestedKey)) ready = new Ready(key, png);
+                    Ready r;
+                    if (end) {
+                        r = new Ready(key, generateEnd(style, density, sat, variant), null, null);
+                    } else {
+                        r = generatePlanets(style, sat, variant, key);
+                    }
+                    if (key.equals(requestedKey)) ready = r;
                 } catch (Throwable t) {
                     t.printStackTrace();
                 }
@@ -65,13 +80,9 @@ public final class SpaceSky {
         Ready r = ready;
         if (r != null) {
             ready = null;
-            upload(r.png());
-        } else if (current != null && ++checkTimer % 100 == 0) {
-            try {
-                if (MinecraftClient.getInstance().getTextureManager().getTexture(END_SKY) != current) {
-                    MinecraftClient.getInstance().getTextureManager().registerTexture(END_SKY, current);
-                }
-            } catch (Throwable ignored) {}
+            apply(r);
+        } else if (++checkTimer % 100 == 0) {
+            reassert();
         }
     }
 
@@ -80,23 +91,74 @@ public final class SpaceSky {
         active = false;
         requestedKey = "";
         ready = null;
-        try {
-            if (original != null && originalWorld != null && fxField != null) {
-                fxField.set(originalWorld, original);
-            }
-        } catch (Throwable ignored) {}
-        original = null;
-        originalWorld = null;
-        if (current != null) {
-            try {
-                MinecraftClient.getInstance().getTextureManager().registerTexture(END_SKY, new ResourceTexture(END_SKY));
-            } catch (Throwable t) {
-                t.printStackTrace();
-            }
-            current = null;
+        unswapEffects();
+        clearEnd();
+        clearBodies();
+    }
+
+    // ---------- текстуры ----------
+    private static void apply(Ready r) {
+        if (r.end() != null) {
+            clearBodies();
+            tEnd = register(END_SKY, r.end());
+        } else {
+            clearEnd();
+            tSun = register(SUN, r.sun());
+            tMoon = register(MOON, r.moon());
         }
     }
 
+    private static NativeImageBackedTexture register(Identifier id, byte[] png) {
+        try {
+            NativeImage img = NativeImage.read(new ByteArrayInputStream(png));
+            NativeImageBackedTexture tex = new NativeImageBackedTexture(img);
+            tex.setFilter(true, false);
+            MinecraftClient.getInstance().getTextureManager().registerTexture(id, tex);
+            return tex;
+        } catch (Throwable t) {
+            t.printStackTrace();
+            return null;
+        }
+    }
+
+    private static void vanilla(Identifier id) {
+        try {
+            MinecraftClient.getInstance().getTextureManager().registerTexture(id, new ResourceTexture(id));
+        } catch (Throwable t) {
+            t.printStackTrace();
+        }
+    }
+
+    private static void clearEnd() {
+        if (tEnd != null) {
+            vanilla(END_SKY);
+            tEnd = null;
+        }
+    }
+
+    private static void clearBodies() {
+        if (tSun != null) {
+            vanilla(SUN);
+            tSun = null;
+        }
+        if (tMoon != null) {
+            vanilla(MOON);
+            tMoon = null;
+        }
+    }
+
+    /** Если ресурсы перезагрузили, возвращаем наши текстуры. */
+    private static void reassert() {
+        try {
+            var tm = MinecraftClient.getInstance().getTextureManager();
+            if (tEnd != null && tm.getTexture(END_SKY) != tEnd) tm.registerTexture(END_SKY, tEnd);
+            if (tSun != null && tm.getTexture(SUN) != tSun) tm.registerTexture(SUN, tSun);
+            if (tMoon != null && tm.getTexture(MOON) != tMoon) tm.registerTexture(MOON, tMoon);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    // ---------- тип неба мира ----------
     private static void swapEffects(ClientWorld world) {
         if (failed) return;
         try {
@@ -130,19 +192,18 @@ public final class SpaceSky {
         }
     }
 
-    private static void upload(byte[] png) {
+    private static void unswapEffects() {
         try {
-            NativeImage img = NativeImage.read(new ByteArrayInputStream(png));
-            NativeImageBackedTexture tex = new NativeImageBackedTexture(img);
-            MinecraftClient.getInstance().getTextureManager().registerTexture(END_SKY, tex);
-            current = tex;
-        } catch (Throwable t) {
-            t.printStackTrace();
+            if (original != null && originalWorld != null && fxField != null) {
+                fxField.set(originalWorld, original);
+            }
+        } catch (Throwable ignored) {
         }
+        original = null;
+        originalWorld = null;
     }
 
-    // ---------------- генерация ----------------
-
+    // ---------- шум ----------
     private static float hash(int x, int y, int s) {
         int h = x * 374761393 + y * 668265263 + s * 1442695041;
         h = (h ^ (h >>> 13)) * 1274126177;
@@ -177,128 +238,238 @@ public final class SpaceSky {
         return t * t * (3f - 2f * t);
     }
 
-    private static byte[] generate(String style, int density, int sat, int variant) throws Exception {
-        final int S = SIZE;
-        final int seed = variant * 7919 + 13;
+    private static float cl(float v) {
+        return Math.max(0f, Math.min(1f, v));
+    }
 
-        float[][] pal;
-        float nebAmt, nebScale;
-        boolean galaxy = false, aurora = false;
+    private static float mix(float a, float b, float t) {
+        return a + (b - a) * t;
+    }
+
+    // ---------- планеты (солнце + луна) ----------
+    private static Ready generatePlanets(String style, int sat, int variant, String key) throws Exception {
+        String sunArt, moonArt;
         switch (style) {
-            case "Галактика":
-                pal = new float[][]{{0.10f, 0.12f, 0.45f}, {0.45f, 0.25f, 0.80f}, {0.85f, 0.55f, 0.95f}};
-                nebAmt = 0.55f; nebScale = 3.0f; galaxy = true;
-                break;
-            case "Туманность":
-                pal = new float[][]{{0.10f, 0.55f, 0.80f}, {0.80f, 0.20f, 0.65f}, {0.98f, 0.60f, 0.25f}};
-                nebAmt = 1.15f; nebScale = 2.4f;
-                break;
-            case "Звёздный рой":
-                pal = new float[][]{{0.15f, 0.25f, 0.60f}, {0.35f, 0.45f, 0.85f}, {0.70f, 0.80f, 1.00f}};
-                nebAmt = 0.25f; nebScale = 4.0f;
-                break;
-            case "Космический закат":
-                pal = new float[][]{{0.45f, 0.10f, 0.50f}, {0.95f, 0.35f, 0.30f}, {1.00f, 0.75f, 0.35f}};
-                nebAmt = 1.0f; nebScale = 2.0f;
-                break;
-            default:
-                pal = new float[][]{{0.05f, 0.60f, 0.40f}, {0.20f, 0.90f, 0.70f}, {0.55f, 0.35f, 0.90f}};
-                nebAmt = 1.0f; nebScale = 2.5f; aurora = true;
-                break;
+            case "Чёрная дыра": sunArt = "hole"; moonArt = "neon"; break;
+            case "Неон": sunArt = "neon"; moonArt = "crystal"; break;
+            case "Шар-туманность": sunArt = "nebula"; moonArt = "star"; break;
+            case "Земля": sunArt = "star"; moonArt = "earth"; break;
+            default: sunArt = "gas"; moonArt = "ice"; break;
         }
+        int seed = variant * 7919 + 31;
+        BufferedImage sun = art(sunArt, 256, seed, sat);
+        BufferedImage cell = art(moonArt, 128, seed + 7, sat);
 
-        final float p0 = 0.04f + density * 0.012f;
-        final float p1 = 0.004f + density * 0.0018f;
-        final float satK = sat / 100f;
-
-        int[] px = new int[S * S];
-        for (int y = 0; y < S; y++) {
-            for (int x = 0; x < S; x++) {
-                float u = (x + 0.5f) / S, v = (y + 0.5f) / S;
-                float edge = smooth(0f, 0.2f, Math.min(Math.min(u, 1f - u), Math.min(v, 1f - v)));
-
-                float r = 0.004f, g = 0.005f, b = 0.012f;
-
-                // туманность / аврора
-                float n1 = fbm(u * nebScale + seed * 0.37f, v * nebScale + seed * 0.11f, seed, 5);
-                float tint = fbm(u * nebScale * 1.7f + 40f, v * nebScale * 1.7f + 17f, seed + 5, 4);
-                float k;
-                if (aurora) {
-                    double wave = Math.sin((v * 7.0 + n1 * 4.0) * Math.PI);
-                    float band = smooth(0.2f, 1f, (float) wave);
-                    k = nebAmt * band * (0.3f + 0.7f * (1f - v * 0.6f)) * (0.4f + 0.6f * edge);
-                } else {
-                    k = nebAmt * smooth(0.38f, 0.82f, n1) * (0.35f + 0.65f * edge);
-                }
-                float t3 = Math.max(0f, Math.min(1f, tint)) * 2f;
-                int i0 = Math.min(1, (int) t3);
-                float f = t3 - i0;
-                float cr = pal[i0][0] + (pal[i0 + 1][0] - pal[i0][0]) * f;
-                float cg = pal[i0][1] + (pal[i0 + 1][1] - pal[i0][1]) * f;
-                float cb = pal[i0][2] + (pal[i0 + 1][2] - pal[i0][2]) * f;
-                r += cr * k; g += cg * k; b += cb * k;
-
-                // спиральная галактика
-                if (galaxy) {
-                    float dx = u - 0.5f, dy = v - 0.5f;
-                    float ca = (float) Math.cos(0.5), sa = (float) Math.sin(0.5);
-                    float rx = dx * ca + dy * sa;
-                    float ry = (-dx * sa + dy * ca) * 2.4f;
-                    float rr = (float) Math.sqrt(rx * rx + ry * ry);
-                    double th = Math.atan2(ry, rx);
-                    double armD = 0.5 + 0.5 * Math.cos(2.0 * th - 9.0 * Math.log(rr + 0.04) + seed);
-                    float arm = (float) armD;
-                    float disk = (float) Math.exp(-rr * 5.5f);
-                    float core = (float) Math.exp(-rr * 22f);
-                    float dust = 0.6f + 0.4f * fbm(u * 9f, v * 9f, seed + 9, 3);
-                    float gl = disk * (0.25f + 0.75f * arm * arm) * dust * edge;
-                    core *= edge;
-                    r += gl * 0.75f + core;
-                    g += gl * 0.65f + core * 0.9f;
-                    b += gl * 0.95f + core * 0.8f;
-                }
-
-                // звёзды
-                for (int layer = 0; layer < 2; layer++) {
-                    int cs = layer == 0 ? 5 : 11;
-                    int cx = x / cs, cy = y / cs;
-                    float prob = layer == 0 ? p0 : p1;
-                    if (hash(cx, cy, seed + layer * 101) >= prob) continue;
-                    float sx = cx * cs + 1.5f + hash(cx, cy, seed + 7 + layer) * (cs - 3f);
-                    float sy = cy * cs + 1.5f + hash(cx, cy, seed + 13 + layer) * (cs - 3f);
-                    float ddx = x + 0.5f - sx, ddy = y + 0.5f - sy;
-                    float d2 = ddx * ddx + ddy * ddy;
-                    float br = 0.4f + 0.6f * hash(cx, cy, seed + 29 + layer);
-                    br = br * br;
-                    float sigma = layer == 0 ? 0.55f : 0.9f;
-                    float val = br * (float) Math.exp(-d2 / (2f * sigma * sigma)) * (layer == 0 ? 1f : 1.6f);
-                    float tmp = hash(cx, cy, seed + 31);
-                    float sr, sg, sb;
-                    if (tmp < 0.25f) { sr = 0.7f; sg = 0.8f; sb = 1f; }
-                    else if (tmp < 0.8f) { sr = 1f; sg = 1f; sb = 1f; }
-                    else { sr = 1f; sg = 0.85f; sb = 0.65f; }
-                    r += val * sr; g += val * sg; b += val * sb;
-                }
-
-                // тон-маппинг и насыщенность
-                r = 1f - (float) Math.exp(-r * 1.5f);
-                g = 1f - (float) Math.exp(-g * 1.5f);
-                b = 1f - (float) Math.exp(-b * 1.5f);
-                float lum = 0.3f * r + 0.59f * g + 0.11f * b;
-                r = Math.max(0f, Math.min(1f, lum + (r - lum) * satK));
-                g = Math.max(0f, Math.min(1f, lum + (g - lum) * satK));
-                b = Math.max(0f, Math.min(1f, lum + (b - lum) * satK));
-
-                px[y * S + x] = 0xFF000000 | ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
-            }
+        // луна в ванили лежит атласом 4x2 (8 фаз): кладём в каждую клетку одну картинку
+        BufferedImage atlas = new BufferedImage(512, 256, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = atlas.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        for (int row = 0; row < 2; row++) {
+            for (int col = 0; col < 4; col++) g.drawImage(cell, col * 128, row * 128, null);
         }
+        g.dispose();
+        return new Ready(key, null, png(sun), png(atlas));
+    }
 
-        BufferedImage img = new BufferedImage(S, S, BufferedImage.TYPE_INT_RGB);
-        img.setRGB(0, 0, S, S, px, 0, S);
+    private static byte[] png(BufferedImage img) throws Exception {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         ImageIO.write(img, "png", out);
         return out.toByteArray();
     }
 
-    private SpaceSky() {}
-}
+    /** Складывает слой поверх (обычное смешивание). rgba[] обновляется. */
+    private static void over(float[] dst, float r, float g, float b, float a) {
+        a = cl(a);
+        if (a <= 0f) return;
+        float oa = a + dst[3] * (1f - a);
+        if (oa <= 0f) return;
+        dst[0] = (r * a + dst[0] * dst[3] * (1f - a)) / oa;
+        dst[1] = (g * a + dst[1] * dst[3] * (1f - a)) / oa;
+        dst[2] = (b * a + dst[2] * dst[3] * (1f - a)) / oa;
+        dst[3] = oa;
+    }
+
+    private static BufferedImage art(String kind, int S, int seed, int sat) {
+        BufferedImage img = new BufferedImage(S, S, BufferedImage.TYPE_INT_ARGB);
+        int[] px = new int[S * S];
+        float satK = sat / 100f;
+        float[] px4 = new float[4];
+
+        for (int y = 0; y < S; y++) {
+            for (int x = 0; x < S; x++) {
+                float u = (x + 0.5f) / S * 2f - 1f;
+                float v = (y + 0.5f) / S * 2f - 1f;
+                px4[0] = px4[1] = px4[2] = px4[3] = 0f;
+                switch (kind) {
+                    case "gas": gas(px4, u, v, seed); break;
+                    case "ice": ice(px4, u, v, seed); break;
+                    case "hole": hole(px4, u, v, seed); break;
+                    case "neon": neon(px4, u, v, seed); break;
+                    case "crystal": crystal(px4, u, v, seed); break;
+                    case "nebula": nebulaSphere(px4, u, v, seed); break;
+                    case "earth": earth(px4, u, v, seed); break;
+                    default: star(px4, u, v, seed); break;
+                }
+                float lum = 0.3f * px4[0] + 0.59f * px4[1] + 0.11f * px4[2];
+                float r = cl(lum + (px4[0] - lum) * satK);
+                float g = cl(lum + (px4[1] - lum) * satK);
+                float b = cl(lum + (px4[2] - lum) * satK);
+                int a = (int) (cl(px4[3]) * 255);
+                px[y * S + x] = (a << 24) | ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
+            }
+        }
+        img.setRGB(0, 0, S, S, px, 0, S);
+        return img;
+    }
+
+    private static float light(float nx, float ny, float nz) {
+        float lx = -0.55f, ly = -0.5f, lz = 0.67f;
+        float d = nx * lx + ny * ly + nz * lz;
+        return Math.max(0f, d);
+    }
+
+    // газовый гигант с кольцом
+    private static void gas(float[] o, float u, float v, int seed) {
+        float R = 0.42f;
+        float r = (float) Math.sqrt(u * u + v * v);
+        // свечение атмосферы
+        if (r > R) over(o, 0.95f, 0.55f, 0.30f, (float) Math.exp(-(r - R) * 9f) * 0.45f);
+
+        float ang = -0.35f;
+        float ca = (float) Math.cos(ang), sa = (float) Math.sin(ang);
+        float ex = u * ca + v * sa;
+        float ey = (-u * sa + v * ca) * 3.4f;
+        float rr = (float) Math.sqrt(ex * ex + ey * ey);
+        float ringA = smooth(0.62f, 0.68f, rr) * (1f - smooth(0.93f, 0.99f, rr));
+        ringA *= 0.55f + 0.45f * (float) Math.sin(rr * 80f + 1.3f);
+        ringA *= 0.9f - 0.4f * (float) Math.abs(Math.sin(rr * 21f));
+        boolean ringFront = ey > 0;
+        if (ringA > 0 && !ringFront && r > R) over(o, 0.85f, 0.75f, 0.60f, ringA);
+
+        if (r < R) {
+            float lat = v / R;
+            float nz = (float) Math.sqrt(Math.max(0f, 1f - (r / R) * (r / R)));
+            float band = fbm(lat * 5f + fbm(u * 3f, v * 3f, seed, 3) * 1.6f, 0.5f, seed + 3, 4);
+            float t = cl(band * 1.6f - 0.1f);
+            float cr = t < 0.5f ? mix(0.55f, 0.95f, t * 2f) : mix(0.95f, 0.98f, (t - 0.5f) * 2f);
+            float cg = t < 0.5f ? mix(0.30f, 0.62f, t * 2f) : mix(0.62f, 0.88f, (t - 0.5f) * 2f);
+            float cb = t < 0.5f ? mix(0.16f, 0.32f, t * 2f) : mix(0.32f, 0.72f, (t - 0.5f) * 2f);
+            float sh = 0.22f + 1.0f * light(u / R, v / R, nz);
+            float rim = (float) Math.pow(1f - nz, 3.0) * 0.45f;
+            over(o, cl(cr * sh + rim * 0.9f), cl(cg * sh + rim * 0.5f), cl(cb * sh + rim * 0.25f), smooth(R, R - 0.02f, r));
+        }
+        if (ringA > 0 && ringFront) over(o, 0.92f, 0.82f, 0.66f, ringA);
+    }
+
+    // ледяной мир с кратерами
+    private static void ice(float[] o, float u, float v, int seed) {
+        float R = 0.82f;
+        float r = (float) Math.sqrt(u * u + v * v);
+        if (r > R) over(o, 0.55f, 0.8f, 1.0f, (float) Math.exp(-(r - R) * 12f) * 0.55f);
+        if (r < R) {
+            float nz = (float) Math.sqrt(Math.max(0f, 1f - (r / R) * (r / R)));
+            float base = 0.75f + 0.18f * fbm(u * 4f, v * 4f, seed, 4);
+            float crater = 0f;
+            for (int i = 0; i < 12; i++) {
+                float cx = (hash(i, 1, seed) * 2f - 1f) * 0.6f;
+                float cy = (hash(i, 2, seed) * 2f - 1f) * 0.6f;
+                float cr = 0.07f + hash(i, 3, seed) * 0.12f;
+                float d = (float) Math.sqrt((u - cx) * (u - cx) + (v - cy) * (v - cy));
+                if (d < cr) crater -= 0.25f * (1f - d / cr);
+                else if (d < cr * 1.25f) crater += 0.18f;
+            }
+            float sh = 0.25f + 0.95f * light(u / R, v / R, nz);
+            float rim = (float) Math.pow(1f - nz, 3.0) * 0.5f;
+            float c = cl((base + crater) * sh);
+            over(o, cl(c * 0.8f + rim * 0.5f), cl(c * 0.92f + rim * 0.8f), cl(c + rim), smooth(R, R - 0.03f, r));
+        }
+    }
+
+    // чёрная дыра с аккреционным диском
+    private static void hole(float[] o, float u, float v, int seed) {
+        float r = (float) Math.sqrt(u * u + v * v);
+        if (r > 0.3f) over(o, 1.0f, 0.55f, 0.2f, (float) Math.exp(-(r - 0.3f) * 5f) * 0.22f);
+
+        // заднюю часть диска линзирует над и под дырой
+        float arcR = (float) Math.abs(r - 0.48f);
+        float arc = smooth(0.12f, 0f, arcR) * smooth(0.12f, 0.2f, (float) Math.abs(v)) * 0.8f;
+        if (arc > 0) over(o, 1.0f, 0.7f, 0.35f, arc * (float) Math.exp(-Math.abs(u) * 1.2f));
+
+        // тонкое фотонное кольцо
+        float lens = smooth(0.035f, 0f, (float) Math.abs(r - 0.34f));
+        if (lens > 0) over(o, 1.0f, 0.95f, 0.85f, lens);
+
+        // сам диск (сильно приплюснутый)
+        float ey = v * 5.5f;
+        float rr = (float) Math.sqrt(u * u + ey * ey);
+        if (rr > 0.34f && rr < 0.98f) {
+            float t = (rr - 0.34f) / 0.64f;
+            float inten = (float) Math.pow(1f - t, 1.5);
+            float dopp = 0.65f + 0.55f * smooth(0.8f, -0.8f, u);
+            float turb = 0.75f + 0.5f * fbm(u * 9f + seed, ey * 2f, seed, 3);
+            float k = cl(inten * dopp * turb * 1.4f);
+            float cr = 1.0f, cg = mix(0.35f, 0.92f, k), cb = mix(0.08f, 0.6f, k * k);
+            float edge = smooth(0.34f, 0.4f, rr) * (1f - smooth(0.9f, 0.98f, rr));
+            // передняя часть диска закрывает дыру, задняя прячется за тенью
+            if (!(v < 0 && r < 0.3f)) over(o, cr, cg, cb, k * edge);
+        }
+        // тень горизонта событий
+        if (r < 0.3f) over(o, 0f, 0f, 0f, smooth(0.3f, 0.27f, r));
+    }
+
+    // неоновый шар с лучами
+    private static void neon(float[] o, float u, float v, int seed) {
+        float r = (float) Math.sqrt(u * u + v * v);
+        double th = Math.atan2(v, u);
+        float halo = (float) Math.exp(-r * 3.2f);
+        over(o, 0.95f, 0.25f, 0.85f, halo * 0.9f);
+        float rays = (float) Math.pow(Math.max(0.0, Math.cos(8 * th + seed)), 14.0) * (float) Math.exp(-r * 2.3f) * 0.8f;
+        over(o, 0.7f, 0.5f, 1.0f, rays);
+        float core = (float) Math.exp(-r * r * 40f);
+        over(o, 1f, 0.95f, 1f, core);
+        float ring = smooth(0.05f, 0f, (float) Math.abs(r - 0.42f)) * 0.7f;
+        over(o, 0.5f, 0.9f, 1.0f, ring);
+    }
+
+    // огранённый кристалл-шар
+    private static void crystal(float[] o, float u, float v, int seed) {
+        float R = 0.78f;
+        float r = (float) Math.sqrt(u * u + v * v);
+        if (r > R) over(o, 0.3f, 0.9f, 1.0f, (float) Math.exp(-(r - R) * 11f) * 0.6f);
+        if (r < R) {
+            double th = Math.atan2(v, u);
+            int sector = (int) Math.floor((th + Math.PI) / (Math.PI * 2) * 8);
+            float f = 0.55f + 0.45f * hash(sector, 5, seed);
+            float nz = (float) Math.sqrt(Math.max(0f, 1f - (r / R) * (r / R)));
+            float sh = 0.3f + 0.9f * light(u / R, v / R, nz);
+            float k = cl(f * sh);
+            float spark = (float) Math.exp(-((u + 0.3f) * (u + 0.3f) + (v + 0.3f) * (v + 0.3f)) * 25f);
+            over(o, cl(0.2f * k + spark), cl(0.8f * k + spark), cl(1.0f * k + spark), smooth(R, R - 0.03f, r));
+        }
+    }
+
+    // сфера-туманность
+    private static void nebulaSphere(float[] o, float u, float v, int seed) {
+        float R = 0.78f;
+        float r = (float) Math.sqrt(u * u + v * v);
+        if (r > R) over(o, 0.85f, 0.3f, 0.95f, (float) Math.exp(-(r - R) * 8f) * 0.65f);
+        if (r < R) {
+            float nz = (float) Math.sqrt(Math.max(0f, 1f - (r / R) * (r / R)));
+            double th = Math.atan2(v, u);
+            float sw = fbm((float) (Math.cos(th + r * 3.0) * r * 3f) + seed * 0.1f, (float) (Math.sin(th + r * 3.0) * r * 3f), seed, 5);
+            float t = cl(sw * 1.8f - 0.2f);
+            float cr = t < 0.5f ? mix(0.1f, 0.6f, t * 2f) : mix(0.6f, 1.0f, (t - 0.5f) * 2f);
+            float cg = t < 0.5f ? mix(0.7f, 0.25f, t * 2f) : mix(0.25f, 0.55f, (t - 0.5f) * 2f);
+            float cb = t < 0.5f ? mix(0.8f, 0.9f, t * 2f) : mix(0.9f, 0.85f, (t - 0.5f) * 2f);
+            float sh = 0.4f + 0.85f * light(u / R, v / R, nz);
+            float rim = (float) Math.pow(1f - nz, 2.5) * 0.7f;
+            over(o, cl(cr * sh + rim * 0.9f), cl(cg * sh + rim * 0.3f), cl(cb * sh + rim * 0.9f), smooth(R, R - 0.03f, r));
+        }
+    }
+
+    // золотая звезда с лучами
+    private static void star(float[] o, float u, float v, int seed) {
+        float r = (float) Math.sqrt(u * u + v * v);
+        over(o, 1f, 0.72f, 0.25f, (float) Math.exp(-r * 4.5f) * 0.9f);
+        float au = Math.abs(u), av = Math.abs(v);
+        float cross = (float) (
