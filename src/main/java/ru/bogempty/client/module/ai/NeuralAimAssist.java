@@ -14,6 +14,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import ru.bogempty.client.ai.SharedNeuralNetwork;
 import ru.bogempty.client.friend.FriendManager;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
@@ -261,6 +262,8 @@ public class NeuralAimAssist extends Module {
             double spd = uMag / Math.max(dt, 0.004);
             boolean toward = (uy * err[0] + up * err[1]) > 0;
             if (toward && errMag > 4.0 && errMag < 45.0 && spd > 30.0 && spd < 1500.0) {
+                double[] nnFeatures = neuralFeatures(errMag, spd, targetDistance, cand);
+                SharedNeuralNetwork.get().train(nnFeatures, 1.0, MathHelper.clamp(1.0 - errMag / 60.0, 0.0, 1.0), 0.25);
                 int bucket = activeProfile;
                 double k = MathHelper.clamp(spd / errMag, 2.0, 40.0);
                 // A small adaptive update prevents a single noisy mouse sample from dominating.
@@ -342,6 +345,11 @@ public class NeuralAimAssist extends Module {
             k = MathHelper.lerp(m, k, profileK[activeProfile]);
             cap = MathHelper.lerp(m, cap, profileMax[activeProfile]);
         }
+        double distanceNow = p.getEyePos().distanceTo(locked.getBoundingBox().getCenter());
+        double[] nn = SharedNeuralNetwork.get().predict(neuralFeatures(mag, Math.sqrt(omegaY * omegaY + omegaP * omegaP), distanceNow, locked));
+        double nnInfluence = Math.min(0.20, SharedNeuralNetwork.get().samples() / 500.0 * 0.20);
+        k *= 1.0 + (nn[0] - 0.5) * nnInfluence;
+        cap *= 1.0 + (nn[1] - 0.5) * nnInfluence;
 
         double ramp = 1.0;
         double sMs = startMs.get();
@@ -414,6 +422,21 @@ public class NeuralAimAssist extends Module {
         float ty = (float) (Math.toDegrees(Math.atan2(d.z, d.x)) - 90.0);
         float tp = (float) -Math.toDegrees(Math.atan2(d.y, hd));
         return new float[]{MathHelper.wrapDegrees(ty - yaw), tp - pitch, ty, tp};
+    }
+
+    private double[] neuralFeatures(double error, double mouseSpeed, double distance, LivingEntity target) {
+        double[] f = new double[SharedNeuralNetwork.INPUTS];
+        f[0] = MathHelper.clamp(error / 45.0, 0.0, 1.0);
+        f[1] = MathHelper.clamp(mouseSpeed / 1500.0, 0.0, 1.0);
+        f[2] = MathHelper.clamp(distance / 6.0, 0.0, 1.0);
+        f[3] = MathHelper.clamp(Math.sqrt(velX * velX + velZ * velZ) / 6.0, 0.0, 1.0);
+        f[4] = MathHelper.clamp(Math.abs(target.getVelocity().y) / 1.0, 0.0, 1.0);
+        f[5] = MathHelper.clamp(Math.abs(omegaY) / 900.0, 0.0, 1.0);
+        f[6] = MathHelper.clamp(Math.abs(omegaP) / 900.0, 0.0, 1.0);
+        f[7] = MathHelper.clamp(track.get() / 100.0, 0.0, 1.0);
+        f[8] = MathHelper.clamp(leadMs.get() / 200.0, 0.0, 1.0);
+        f[9] = target.isOnGround() ? 0.0 : 1.0;
+        return f;
     }
 
     private int profileForDistance(double distance) {
