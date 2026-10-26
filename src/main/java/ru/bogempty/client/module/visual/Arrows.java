@@ -66,25 +66,28 @@ public class Arrows extends Module {
 
     private static void drawArrow(DrawContext context, double x, double y,
                                   double angle, int size, int color) {
-        // Tip faces the target; the two rear corners form a compact chevron.
+        // Open chevron with a dark outline and a soft purple/green halo.
         double tipX = x + Math.sin(angle) * size;
         double tipY = y - Math.cos(angle) * size;
-        double backX = x - Math.sin(angle) * size * 0.65;
-        double backY = y + Math.cos(angle) * size * 0.65;
-        double side = size * 0.68;
+        double backX = x - Math.sin(angle) * size * 0.72;
+        double backY = y + Math.cos(angle) * size * 0.72;
+        double side = size * 0.72;
 
         double leftX = backX + Math.cos(angle) * side;
         double leftY = backY + Math.sin(angle) * side;
         double rightX = backX - Math.cos(angle) * side;
         double rightY = backY - Math.sin(angle) * side;
 
-        // Dark outline keeps arrows readable against bright scenes.
-        line(context, tipX, tipY, leftX, leftY, 0xD9000000, 3);
-        line(context, leftX, leftY, rightX, rightY, 0xD9000000, 3);
-        line(context, rightX, rightY, tipX, tipY, 0xD9000000, 3);
-        line(context, tipX, tipY, leftX, leftY, color, 1);
-        line(context, leftX, leftY, rightX, rightY, color, 1);
-        line(context, rightX, rightY, tipX, tipY, color, 1);
+        // Outer glow, outline, then the crisp colored chevron.
+        line(context, tipX, tipY, leftX, leftY, (color & 0x00FFFFFF) | 0x50000000, 5);
+        line(context, tipX, tipY, rightX, rightY, (color & 0x00FFFFFF) | 0x50000000, 5);
+        line(context, tipX, tipY, leftX, leftY, 0xE8000000, 3);
+        line(context, tipX, tipY, rightX, rightY, 0xE8000000, 3);
+        line(context, tipX, tipY, leftX, leftY, color, 2);
+        line(context, tipX, tipY, rightX, rightY, color, 2);
+        // Small bright tip gives the arrow a cleaner, sharper finish.
+        context.fill((int) Math.round(tipX) - 1, (int) Math.round(tipY) - 1,
+                (int) Math.round(tipX) + 2, (int) Math.round(tipY) + 2, 0xFFFFFFFF);
     }
 
     private static void line(DrawContext context, double x1, double y1,
