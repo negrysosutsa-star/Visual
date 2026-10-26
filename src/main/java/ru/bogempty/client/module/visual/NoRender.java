@@ -13,6 +13,7 @@ public class NoRender extends Module {
     private final Setting.Mode particles = add(new Setting.Mode("Частицы", "Не менять", "Меньше", "Выключить"),
             "Режим частиц: меньше или совсем без них.");
     private final Setting.Bool clouds = add(new Setting.Bool("Облака", true), "Убрать облака.");
+    private final Setting.Bool fog = add(new Setting.Bool("Туман", false), "Отключить дальний туман.");
     private final Setting.Bool shadows = add(new Setting.Bool("Тени существ", true), "Убрать круглые тени под существами.");
     private final Setting.Bool weather = add(new Setting.Bool("Погода", false), "Убрать дождь, снег и грозу (только у тебя).");
     private final Setting.Bool bobbing = add(new Setting.Bool("Покачивание камеры", false), "Убрать покачивание камеры при ходьбе.");
@@ -25,6 +26,8 @@ public class NoRender extends Module {
     private final OptOverride<Boolean> oBob = new OptOverride<>();
     private final OptOverride<Double> oFov = new OptOverride<>();
     private final OptOverride<Double> oDist = new OptOverride<>();
+
+    public boolean isFogDisabled() { return enabled && fog.get(); }
 
     public NoRender() {
         super("NoRender", "Отключает лишнюю отрисовку", Category.VISUAL);
