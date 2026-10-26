@@ -44,10 +44,6 @@ public class NeuralAimAssist extends Module {
             "Насколько прицел повторяет движение цели по углу. Больше — цель держится ровнее.");
     private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 360, 1),
             "Конус захвата, градусы.");
-    private final Setting.Bool showFovCircle = add(new Setting.Bool("Круг FOV", true),
-            "Показывать круг зоны захвата вокруг прицела.");
-    private final Setting.Num fovCircleRadius = add(new Setting.Num("Радиус круга", 90, 20, 220, 5),
-            "Размер круга FOV на экране в пикселях.");
     private final Setting.Num range = add(new Setting.Num("Дистанция", 4.8, 2.0, 6.0, 0.1),
             "Макс. дистанция до цели.");
     private final Setting.Num speed = add(new Setting.Num("Скорость наводки", 9.0, 2.0, 30.0, 0.5),
@@ -528,32 +524,5 @@ public class NeuralAimAssist extends Module {
             return;
         }
         frame(p, tickDelta);
-        if (showFovCircle.get()) {
-            drawFovCircle(c, fovCircleRadius.get());
-        }
-    }
-
-    private void drawFovCircle(DrawContext c, double radius) {
-        int cx = mc.getWindow().getScaledWidth() / 2;
-        int cy = mc.getWindow().getScaledHeight() / 2;
-        int segments = 96;
-        int color = 0xB58A5CFF;
-        double step = (Math.PI * 2.0) / segments;
-        for (int i = 0; i < segments; i++) {
-            double a1 = i * step;
-            double a2 = (i + 1) * step;
-            int x1 = cx + (int) Math.round(Math.cos(a1) * radius);
-            int y1 = cy + (int) Math.round(Math.sin(a1) * radius);
-            int x2 = cx + (int) Math.round(Math.cos(a2) * radius);
-            int y2 = cy + (int) Math.round(Math.sin(a2) * radius);
-            // Thin segment made from a few pixels wide; avoids extra rendering dependencies.
-            int minX = Math.min(x1, x2);
-            int minY = Math.min(y1, y2);
-            int maxX = Math.max(x1, x2);
-            int maxY = Math.max(y1, y2);
-            if (maxX == minX) maxX++;
-            if (maxY == minY) maxY++;
-            c.fill(minX, minY, maxX + 1, maxY + 1, color);
-        }
     }
 }
