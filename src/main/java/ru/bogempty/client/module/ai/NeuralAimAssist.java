@@ -42,7 +42,7 @@ public class NeuralAimAssist extends Module {
             "Насколько вперёд по движению цели смещается точка. 0 — без упреждения.");
     private final Setting.Num track = add(new Setting.Num("Слежение %", 80, 0, 100, 5),
             "Насколько прицел повторяет движение цели по углу. Больше — цель держится ровнее.");
-    private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 140, 1),
+    private final Setting.Num fov = add(new Setting.Num("FOV", 60, 20, 360, 1),
             "Конус захвата, градусы.");
     private final Setting.Num range = add(new Setting.Num("Дистанция", 4.8, 2.0, 6.0, 0.1),
             "Макс. дистанция до цели.");
