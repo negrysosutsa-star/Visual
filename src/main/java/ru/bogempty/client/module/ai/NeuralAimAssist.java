@@ -73,10 +73,16 @@ public class NeuralAimAssist extends Module {
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    // Independent online-learning profiles by target distance (blocks).
+    private static final int PROFILE_COUNT = 3;
+    private final double[] profileK = {9.0, 9.0, 9.0};
+    private final double[] profileMax = {420.0, 420.0, 420.0};
+    private final int[] profileSamples = {0, 0, 0};
     private double learnedK = 9.0;
     private double learnedMax = 420.0;
     private int samples = 0;
     private int sinceSave = 0;
+    private int activeProfile = 0;
 
     private LivingEntity cand = null; 
     private LivingEntity locked = null; 
@@ -131,6 +137,11 @@ public class NeuralAimAssist extends Module {
             learnedK = 9.0;
             learnedMax = 420.0;
             samples = 0;
+            for (int i = 0; i < PROFILE_COUNT; i++) {
+                profileK[i] = 9.0;
+                profileMax[i] = 420.0;
+                profileSamples[i] = 0;
+            }
             save();
             why = "Обучение сброшено";
         }
@@ -241,6 +252,8 @@ public class NeuralAimAssist extends Module {
         hasExp = true;
 
         if (learn.get() && cand != null && uMag > 0.05 && now - lastSampleMs >= 50) {
+            double targetDistance = p.getEyePos().distanceTo(cand.getBoundingBox().getCenter());
+            activeProfile = profileForDistance(targetDistance);
             Vec3d eye = p.getCameraPosVec(tickDelta);
             Vec3d look = p.getRotationVec(1.0f);
             float[] err = angles(p, eye, aimPoint(eye, look, cand, tickDelta, Vec3d.ZERO), yaw, pitch);
@@ -248,12 +261,18 @@ public class NeuralAimAssist extends Module {
             double spd = uMag / Math.max(dt, 0.004);
             boolean toward = (uy * err[0] + up * err[1]) > 0;
             if (toward && errMag > 4.0 && errMag < 45.0 && spd > 30.0 && spd < 1500.0) {
+                int bucket = activeProfile;
                 double k = MathHelper.clamp(spd / errMag, 2.0, 40.0);
-                learnedK = learnedK * 0.97 + k * 0.03;
-                if (spd > learnedMax * 0.7) learnedMax = MathHelper.clamp(learnedMax * 0.9 + spd * 0.1, 120.0, 1100.0);
+                // A small adaptive update prevents a single noisy mouse sample from dominating.
+                profileK[bucket] = MathHelper.clamp(profileK[bucket] * 0.97 + k * 0.03, 2.0, 40.0);
+                double observedCap = MathHelper.clamp(spd, 120.0, 1100.0);
+                profileMax[bucket] = MathHelper.clamp(profileMax[bucket] * 0.95 + observedCap * 0.05, 120.0, 1100.0);
+                profileSamples[bucket]++;
+                learnedK = profileK[bucket];
+                learnedMax = profileMax[bucket];
                 samples++;
                 lastSampleMs = now;
-                if (++sinceSave >= 200) save();
+                if (++sinceSave >= 40) save();
             }
         }
 
@@ -316,10 +335,12 @@ public class NeuralAimAssist extends Module {
             k *= 0.35;
             cap *= 0.4;
         }
-        if (learn.get() && samples >= 60) {
-            double m = learnStrength.get() * Math.min(1.0, samples / 300.0);
-            k = MathHelper.lerp(m, k, learnedK);
-            cap = MathHelper.lerp(m, cap, learnedMax);
+        activeProfile = profileForDistance(p.getEyePos().distanceTo(locked.getBoundingBox().getCenter()));
+        int localSamples = profileSamples[activeProfile];
+        if (learn.get() && localSamples >= 10) {
+            double m = learnStrength.get() * Math.min(1.0, localSamples / 120.0);
+            k = MathHelper.lerp(m, k, profileK[activeProfile]);
+            cap = MathHelper.lerp(m, cap, profileMax[activeProfile]);
         }
 
         double ramp = 1.0;
@@ -395,6 +416,12 @@ public class NeuralAimAssist extends Module {
         return new float[]{MathHelper.wrapDegrees(ty - yaw), tp - pitch, ty, tp};
     }
 
+    private int profileForDistance(double distance) {
+        if (distance < 2.5) return 0;
+        if (distance < 4.0) return 1;
+        return 2;
+    }
+
     private static Path file() {
         return FabricLoader.getInstance().getConfigDir().resolve("bogempty_aim.json");
     }
@@ -406,6 +433,17 @@ public class NeuralAimAssist extends Module {
             o.addProperty("k", learnedK);
             o.addProperty("max", learnedMax);
             o.addProperty("samples", samples);
+            com.google.gson.JsonArray ks = new com.google.gson.JsonArray();
+            com.google.gson.JsonArray maxs = new com.google.gson.JsonArray();
+            com.google.gson.JsonArray counts = new com.google.gson.JsonArray();
+            for (int i = 0; i < PROFILE_COUNT; i++) {
+                ks.add(profileK[i]);
+                maxs.add(profileMax[i]);
+                counts.add(profileSamples[i]);
+            }
+            o.add("profileK", ks);
+            o.add("profileMax", maxs);
+            o.add("profileSamples", counts);
             Files.writeString(file(), GSON.toJson(o));
         } catch (Exception e) {
             e.printStackTrace();
@@ -419,7 +457,16 @@ public class NeuralAimAssist extends Module {
             JsonObject o = JsonParser.parseString(Files.readString(f)).getAsJsonObject();
             if (o.has("k")) learnedK = MathHelper.clamp(o.get("k").getAsDouble(), 2.0, 40.0);
             if (o.has("max")) learnedMax = MathHelper.clamp(o.get("max").getAsDouble(), 120.0, 1100.0);
-            if (o.has("samples")) samples = o.get("samples").getAsInt();
+            if (o.has("samples")) samples = Math.max(0, o.get("samples").getAsInt());
+            if (o.has("profileK") && o.getAsJsonArray("profileK").size() >= PROFILE_COUNT) {
+                for (int i = 0; i < PROFILE_COUNT; i++) profileK[i] = MathHelper.clamp(o.getAsJsonArray("profileK").get(i).getAsDouble(), 2.0, 40.0);
+            }
+            if (o.has("profileMax") && o.getAsJsonArray("profileMax").size() >= PROFILE_COUNT) {
+                for (int i = 0; i < PROFILE_COUNT; i++) profileMax[i] = MathHelper.clamp(o.getAsJsonArray("profileMax").get(i).getAsDouble(), 120.0, 1100.0);
+            }
+            if (o.has("profileSamples") && o.getAsJsonArray("profileSamples").size() >= PROFILE_COUNT) {
+                for (int i = 0; i < PROFILE_COUNT; i++) profileSamples[i] = Math.max(0, o.getAsJsonArray("profileSamples").get(i).getAsInt());
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -434,5 +481,16 @@ public class NeuralAimAssist extends Module {
             return;
         }
         frame(p, tickDelta);
+        if (learn.get()) {
+            int x = 8;
+            int y = 8;
+            int color = 0xFFE8E8E8;
+            c.drawText(mc.textRenderer, "NeuralAimAssist | Обучение", x, y, 0xFF80D8FF, true);
+            c.drawText(mc.textRenderer, "Всего примеров: " + samples, x, y + 12, color, true);
+            c.drawText(mc.textRenderer, "Ближняя <2.5: " + profileSamples[0] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[0]), x, y + 24, color, true);
+            c.drawText(mc.textRenderer, "Средняя 2.5-4: " + profileSamples[1] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[1]), x, y + 36, color, true);
+            c.drawText(mc.textRenderer, "Дальняя 4+: " + profileSamples[2] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[2]), x, y + 48, color, true);
+            c.drawText(mc.textRenderer, "Текущий профиль: " + (activeProfile == 0 ? "ближний" : activeProfile == 1 ? "средний" : "дальний"), x, y + 60, color, true);
+        }
     }
 }
