@@ -10,6 +10,7 @@ import net.fabricmc.loader.api.FabricLoader;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Модель по ситуациям. У каждой ситуации (земля, подъём, падение, вода/лестница)
@@ -131,7 +132,15 @@ public final class AiBrain {
             o.addProperty("botHits", botHits);
             o.addProperty("botGood", botGood);
             o.addProperty("botBad", botBad);
-            Files.writeString(file(), GSON.toJson(o));
+            Path target = file();
+            Files.createDirectories(target.getParent());
+            Path temp = target.resolveSibling(target.getFileName().toString() + ".tmp");
+            Files.writeString(temp, GSON.toJson(o));
+            try {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.io.IOException atomicMoveUnavailable) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -152,7 +161,8 @@ public final class AiBrain {
             if (!o.has("v") || o.get("v").getAsInt() != VERSION) return;
 
             JsonArray rows = o.getAsJsonArray("w");
-            for (int s = 0; s < S && s < rows.size(); s++) {
+            if (rows == null || rows.size() != S) return;
+            for (int s = 0; s < S; s++) {
                 JsonArray a = rows.get(s).getAsJsonArray();
                 if (a.size() != N) continue;
                 for (int i = 0; i < N; i++) w[s][i] = a.get(i).getAsDouble();
