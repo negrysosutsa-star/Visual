@@ -22,6 +22,7 @@ import ru.bogempty.client.module.movement.ShiftTap;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.Esp;
+import ru.bogempty.client.module.visual.Arrows;
 import ru.bogempty.client.module.visual.FxParticles;
 import ru.bogempty.client.module.visual.FullBright;
 import ru.bogempty.client.module.visual.HitFx;
@@ -51,6 +52,7 @@ public class ModuleManager {
         modules.add(new CustomCrosshair());
         modules.add(new Nametags());
         modules.add(new Esp());
+        modules.add(new Arrows());
         modules.add(new HitFx());
         modules.add(new FxParticles());
 
