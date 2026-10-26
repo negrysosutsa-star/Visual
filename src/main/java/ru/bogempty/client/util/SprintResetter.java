@@ -4,9 +4,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 
 /**
- * Короткий локальный сброс движения вперёд после удара.
- * Восстанавливает состояние клавиш через штатный механизм Minecraft,
- * чтобы не зависеть от типа привязки клавиши (клавиатура/мышь).
+ * Короткий локальный сброс движения вперёд после игрового события.
+ * Восстанавливает состояние клавиш штатным механизмом Minecraft.
  */
 public final class SprintResetter {
     private static int ticksLeft;
@@ -60,13 +59,11 @@ public final class SprintResetter {
 
     private static boolean canRun(MinecraftClient mc) {
         return mc.player != null && mc.world != null && mc.options != null
-                && mc.currentScreen == null && mc.getWindow() != null
-                && mc.getWindow().isFocused();
+                && mc.currentScreen == null;
     }
 
     private static void restore(MinecraftClient mc) {
         try {
-            // Перечитывает фактическое состояние всех привязок штатным кодом игры.
             KeyBinding.updatePressedStates();
         } finally {
             resetActive = false;
