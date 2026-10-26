@@ -21,7 +21,6 @@ import ru.bogempty.client.module.movement.ShiftTap;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.Esp;
-import ru.bogempty.client.module.visual.FpsBoost;
 import ru.bogempty.client.module.visual.FxParticles;
 import ru.bogempty.client.module.visual.FullBright;
 import ru.bogempty.client.module.visual.HitFx;
@@ -53,7 +52,6 @@ public class ModuleManager {
         modules.add(new Esp());
         modules.add(new HitFx());
         modules.add(new FxParticles());
-        modules.add(new FpsBoost());
 
         modules.add(new Watermark());
         modules.add(new InfoHud());
