@@ -115,31 +115,37 @@ public class NeuralAimAssist extends Module {
 
     @Override
     public void onDisable() {
+        resetTrackingState();
+        save();
+    }
+
+    private void resetTrackingState() {
         locked = null;
         cand = null;
+        smTarget = null;
         smPoint = null;
+        velTarget = null;
+        velX = 0.0;
+        velZ = 0.0;
+        omegaY = 0.0;
+        omegaP = 0.0;
+        hasLastAng = false;
         hasExp = false;
+        aimActive = false;
         lastNanos = 0L;
-        save();
     }
 
     @Override
     public void onTick() {
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.world == null || mc.currentScreen != null || !p.isAlive()) {
-            locked = null;
-            cand = null;
-            aimActive = false;
+            resetTrackingState();
             why = "Нет мира";
             return;
         }
 
         if (!(p.getMainHandStack().getItem() instanceof SwordItem)) {
-            locked = null;
-            cand = null;
-            aimActive = false;
-            smPoint = null;
-            hasLastAng = false;
+            resetTrackingState();
             why = "Нужен меч";
             return;
         }
@@ -183,6 +189,7 @@ public class NeuralAimAssist extends Module {
 
         if (mode.is("Только обучение")) {
             locked = null;
+            smPoint = null;
             aimActive = false;
             why = "Только обучение";
             return;
@@ -195,6 +202,14 @@ public class NeuralAimAssist extends Module {
         }
         if (cand == null) {
             locked = null;
+            smTarget = null;
+            smPoint = null;
+            velTarget = null;
+            velX = 0.0;
+            velZ = 0.0;
+            omegaY = 0.0;
+            omegaP = 0.0;
+            hasLastAng = false;
             aimActive = false;
             why = "Нет цели";
             return;
@@ -250,11 +265,7 @@ public class NeuralAimAssist extends Module {
         long now = System.currentTimeMillis();
 
         if (!(p.getMainHandStack().getItem() instanceof SwordItem)) {
-            locked = null;
-            cand = null;
-            aimActive = false;
-            smPoint = null;
-            hasLastAng = false;
+            resetTrackingState();
             return;
         }
 
