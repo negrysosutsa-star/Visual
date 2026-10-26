@@ -4,37 +4,91 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 
-/** Сброс спринта (W-tap): на пару тиков отпускает «вперёд», потом возвращает как было. */
+/**
+ * Короткий W-tap после удара.
+ *
+ * Сохраняет состояние клавиши до сброса и восстанавливает фактическое
+ * состояние физической клавиши, чтобы W не оставалась залипшей.
+ */
 public final class SprintResetter {
-    private static int hold = 0;
+    private static int ticksLeft;
+    private static boolean wasForwardPressed;
+    private static boolean resetActive;
 
-    /** Вызывается сразу после удара. ticks — сколько тиков держать «вперёд» отпущенным. */
+    private SprintResetter() {}
+
+    /**
+     * Временно отпускает движение вперёд. Вызывается после удара.
+     * Значение ticks ограничено диапазоном 1..3.
+     */
     public static void trigger(int ticks) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.options == null) return;
+        if (mc.player == null || mc.world == null || mc.options == null
+                || mc.currentScreen != null || mc.getWindow() == null) {
+            cancel();
+            return;
+        }
+
+        KeyBinding forward = mc.options.forwardKey;
+        if (!resetActive) {
+            wasForwardPressed = forward.isPressed();
+        }
+
+        resetActive = true;
+        ticksLeft = Math.max(1, Math.min(3, ticks));
+        forward.setPressed(false);
         mc.player.setSprinting(false);
-        mc.options.forwardKey.setPressed(false);
-        hold = Math.max(1, ticks);
     }
 
-    /** Вызывается каждый тик (регистрируется в ClientExtras). */
+    /** Вызывается каждый клиентский тик. */
     public static void tick() {
-        if (hold <= 0) return;
-        hold--;
-        if (hold == 0) restore();
-    }
+        if (!resetActive) return;
 
-    private static void restore() {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options == null || mc.getWindow() == null) return;
-        try {
-            KeyBinding kb = mc.options.forwardKey;
-            int code = InputUtil.fromTranslationKey(kb.getBoundKeyTranslationKey()).getCode();
-            kb.setPressed(InputUtil.isKeyPressed(mc.getWindow().getHandle(), code));
-        } catch (Throwable t) {
-            mc.options.forwardKey.setPressed(false);
+        if (mc.player == null || mc.world == null || mc.options == null
+                || mc.currentScreen != null || mc.getWindow() == null) {
+            cancel();
+            return;
+        }
+
+        if (--ticksLeft <= 0) {
+            restore(mc);
         }
     }
 
-    private SprintResetter() {}
+    /** Безопасно завершает сброс, например при открытии меню или выходе из мира. */
+    public static void cancel() {
+        if (!resetActive) {
+            ticksLeft = 0;
+            return;
+        }
+
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.options != null && mc.getWindow() != null) {
+            restore(mc);
+        } else {
+            resetActive = false;
+            ticksLeft = 0;
+        }
+    }
+
+    private static void restore(MinecraftClient mc) {
+        try {
+            KeyBinding forward = mc.options.forwardKey;
+            int code = InputUtil.fromTranslationKey(
+                    forward.getBoundKeyTranslationKey()).getCode();
+
+            // Если окно не в фокусе, не считаем физическую клавишу удерживаемой.
+            boolean physicallyPressed = mc.getWindow().isFocused()
+                    && InputUtil.isKeyPressed(mc.getWindow().getHandle(), code);
+            forward.setPressed(physicallyPressed || wasForwardPressed && physicallyPressed);
+        } catch (RuntimeException ignored) {
+            // Если опрос клавиши временно недоступен, не оставляем W принудительно зажатой.
+            mc.options.forwardKey.setPressed(false);
+        } finally {
+            resetActive = false;
+            ticksLeft = 0;
+            wasForwardPressed = false;
+        }
+    }
 }
