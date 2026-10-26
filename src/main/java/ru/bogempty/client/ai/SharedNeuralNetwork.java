@@ -9,6 +9,7 @@ import net.fabricmc.loader.api.FabricLoader;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 
 /**
@@ -71,11 +72,13 @@ public final class SharedNeuralNetwork {
         }
         double[] targets = {confidenceTarget, qualityTarget};
         double[] deltaOut = new double[2];
+        double[] predictions = new double[2];
         double loss = 0;
         for (int o = 0; o < 2; o++) {
             double z = b2[o];
             for (int h = 0; h < HIDDEN; h++) z += w2[o * HIDDEN + h] * hidden[h];
             double pred = sigmoid(z);
+            predictions[o] = pred;
             double error = pred - targets[o];
             loss += error * error;
             deltaOut[o] = error * pred * (1.0 - pred) * weight;
@@ -95,7 +98,8 @@ public final class SharedNeuralNetwork {
             b1[h] -= RATE * deltaHidden[h];
         }
         samples++;
-        if (Math.abs(predict(x)[0] - confidenceTarget) < 0.25) correct++;
+        // Score the example using the prediction made before this training update.
+        if (Math.abs(predictions[0] - confidenceTarget) < 0.25) correct++;
         lossEma = lossEma * 0.97 + (loss / 2.0) * 0.03;
         if (samples % 20 == 0) save();
     }
@@ -129,7 +133,15 @@ public final class SharedNeuralNetwork {
             JsonArray ba = new JsonArray(); for (double v : b1) ba.add(v); root.add("b1", ba);
             JsonArray a2 = new JsonArray(); for (double v : w2) a2.add(v); root.add("w2", a2);
             JsonArray b2a = new JsonArray(); for (double v : b2) b2a.add(v); root.add("b2", b2a);
-            Files.writeString(path(), GSON.toJson(root));
+            Path target = path();
+            Files.createDirectories(target.getParent());
+            Path temp = target.resolveSibling(target.getFileName().toString() + ".tmp");
+            Files.writeString(temp, GSON.toJson(root));
+            try {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.io.IOException atomicMoveUnavailable) {
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (Exception ignored) { }
     }
 
@@ -138,6 +150,7 @@ public final class SharedNeuralNetwork {
             Path p = path();
             if (!Files.exists(p)) return;
             JsonObject root = JsonParser.parseString(Files.readString(p)).getAsJsonObject();
+            if (!root.has("version") || root.get("version").getAsInt() != 1) return;
             JsonArray rows = root.getAsJsonArray("w1");
             if (rows == null || rows.size() != HIDDEN) return;
             for (int h = 0; h < HIDDEN; h++) {
