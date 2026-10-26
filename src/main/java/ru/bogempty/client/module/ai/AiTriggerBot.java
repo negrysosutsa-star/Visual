@@ -8,6 +8,7 @@ import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.SwordItem;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.EntityHitResult;
@@ -126,6 +127,15 @@ public class AiTriggerBot extends Module {
             lastFeat = null;
             pTarget = null;
             why = "Нет мира";
+            return;
+        }
+
+        if (!(p.getMainHandStack().getItem() instanceof SwordItem)) {
+            releaseJump();
+            lastFeat = null;
+            pTarget = null;
+            armed = false;
+            why = "Нужен меч";
             return;
         }
 
