@@ -11,6 +11,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.SwordItem;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
@@ -133,6 +134,16 @@ public class NeuralAimAssist extends Module {
             return;
         }
 
+        if (!(p.getMainHandStack().getItem() instanceof SwordItem)) {
+            locked = null;
+            cand = null;
+            aimActive = false;
+            smPoint = null;
+            hasLastAng = false;
+            why = "Нужен меч";
+            return;
+        }
+
         if (resetLearn.get()) {
             resetLearn.value = false;
             learnedK = 9.0;
@@ -237,6 +248,15 @@ public class NeuralAimAssist extends Module {
         float dt = lastNanos == 0L ? 0.016f : Math.min(0.05f, (nowN - lastNanos) / 1.0e9f);
         lastNanos = nowN;
         long now = System.currentTimeMillis();
+
+        if (!(p.getMainHandStack().getItem() instanceof SwordItem)) {
+            locked = null;
+            cand = null;
+            aimActive = false;
+            smPoint = null;
+            hasLastAng = false;
+            return;
+        }
 
         float yaw = p.getYaw();
         float pitch = p.getPitch();
@@ -504,16 +524,6 @@ public class NeuralAimAssist extends Module {
             return;
         }
         frame(p, tickDelta);
-        if (learn.get()) {
-            int x = 8;
-            int y = 8;
-            int color = 0xFFE8E8E8;
-            c.drawText(mc.textRenderer, "NeuralAimAssist | Обучение", x, y, 0xFF80D8FF, true);
-            c.drawText(mc.textRenderer, "Всего примеров: " + samples, x, y + 12, color, true);
-            c.drawText(mc.textRenderer, "Ближняя <2.5: " + profileSamples[0] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[0]), x, y + 24, color, true);
-            c.drawText(mc.textRenderer, "Средняя 2.5-4: " + profileSamples[1] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[1]), x, y + 36, color, true);
-            c.drawText(mc.textRenderer, "Дальняя 4+: " + profileSamples[2] + " | K " + String.format(java.util.Locale.ROOT, "%.2f", profileK[2]), x, y + 48, color, true);
-            c.drawText(mc.textRenderer, "Текущий профиль: " + (activeProfile == 0 ? "ближний" : activeProfile == 1 ? "средний" : "дальний"), x, y + 60, color, true);
-        }
+
     }
 }
