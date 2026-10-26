@@ -11,6 +11,8 @@ import net.minecraft.client.gui.screen.multiplayer.MultiplayerScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
 import ru.bogempty.client.ai.AiBrain;
+import ru.bogempty.client.BogEmptyClient;
+import ru.bogempty.client.config.ConfigManager;
 import ru.bogempty.client.alt.AltManager;
 import ru.bogempty.client.friend.FriendManager;
 import ru.bogempty.client.gps.GpsManager;
@@ -64,6 +66,10 @@ public final class ClientExtras {
                 handleFriend(mc, msg);
                 return false;
             }
+            if (low.equals(".cfg") || low.startsWith(".cfg ")) {
+                handleConfig(mc, msg);
+                return false;
+            }
             if (low.startsWith(".gps")) {
                 handleGps(mc, msg);
                 return false;
@@ -75,6 +81,35 @@ public final class ClientExtras {
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             GpsManager.onChat(message.getString());
         });
+    }
+
+    private static void handleConfig(net.minecraft.client.MinecraftClient mc, String msg) {
+        String[] parts = msg.trim().split("\\s+", 3);
+        String action = parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT) : "list";
+        String name = parts.length > 2 ? parts[2].trim() : "";
+        if (name.endsWith(".cfg")) name = name.substring(0, name.length() - 4);
+        switch (action) {
+            case "save" -> {
+                if (name.isBlank()) mc.player.sendMessage(Text.literal("§d[Visual] §f.cfg save <имя>"), false);
+                else if (ConfigManager.saveNamed(BogEmptyClient.moduleManager, name)) mc.player.sendMessage(Text.literal("§d[Visual] §aСохранено: §f" + name + ".cfg"), false);
+                else mc.player.sendMessage(Text.literal("§d[Visual] §cОшибка сохранения. Используй a-z, 0-9, _ или -"), false);
+            }
+            case "load" -> {
+                if (name.isBlank()) mc.player.sendMessage(Text.literal("§d[Visual] §f.cfg load <имя>"), false);
+                else if (ConfigManager.loadNamed(BogEmptyClient.moduleManager, name)) mc.player.sendMessage(Text.literal("§d[Visual] §aЗагружено: §f" + name + ".cfg"), false);
+                else mc.player.sendMessage(Text.literal("§d[Visual] §cКонфиг не найден или не удалось загрузить"), false);
+            }
+            case "delete", "del" -> {
+                if (name.isBlank()) mc.player.sendMessage(Text.literal("§d[Visual] §f.cfg delete <имя>"), false);
+                else if (ConfigManager.deleteNamed(name)) mc.player.sendMessage(Text.literal("§d[Visual] §cУдалён: §f" + name + ".cfg"), false);
+                else mc.player.sendMessage(Text.literal("§d[Visual] §cКонфиг не найден"), false);
+            }
+            case "list" -> {
+                var names = ConfigManager.listNamed();
+                mc.player.sendMessage(Text.literal(names.isEmpty() ? "§d[Visual] §7Конфигов нет" : "§d[Visual] §fКонфиги: §a" + String.join("§7, §a", names)), false);
+            }
+            default -> mc.player.sendMessage(Text.literal("§d[Visual] §f.cfg save/load/delete/list <имя>"), false);
+        }
     }
 
     private static void handleFriend(net.minecraft.client.MinecraftClient mc, String msg) {
