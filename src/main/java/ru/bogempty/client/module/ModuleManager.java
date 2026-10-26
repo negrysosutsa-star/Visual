@@ -18,7 +18,6 @@ import ru.bogempty.client.module.hud.TargetHud;
 import ru.bogempty.client.module.hud.Watermark;
 import ru.bogempty.client.module.movement.AutoSprint;
 import ru.bogempty.client.module.movement.ShiftTap;
-import ru.bogempty.client.module.movement.SprintReset;
 import ru.bogempty.client.module.visual.CustomCrosshair;
 import ru.bogempty.client.module.visual.CustomSky;
 import ru.bogempty.client.module.visual.Esp;
@@ -43,7 +42,6 @@ public class ModuleManager {
 
         modules.add(new AutoSprint());
         modules.add(new ShiftTap());
-        modules.add(new SprintReset());
 
         modules.add(new FullBright());
         modules.add(new Zoom());
