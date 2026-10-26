@@ -77,7 +77,6 @@ public class AiTriggerBot extends Module {
     private boolean armed = false;
     private long fireAt = 0L;
     private boolean jumpHeld = false;
-    private boolean landedSeen = false;
     private String why = "—";
 
     private LivingEntity pTarget = null;
@@ -119,7 +118,6 @@ public class AiTriggerBot extends Module {
             brain.reset();
             lastFeat = null;
             pTarget = null;
-            landedSeen = false;
         }
 
         ClientPlayerEntity p = mc.player;
@@ -302,23 +300,14 @@ public class AiTriggerBot extends Module {
         boolean dead = !pTarget.isAlive();
         boolean landed = pTarget.hurtTime > 0 && pHurt0 == 0;
         if (!landed && !dead && age < 8) return;
-        if (pHurt0 > 0 && !dead) {
-            pTarget = null;
-            pFeat = null;
-            return;
-        }
-        if (dead || landed) landedSeen = true;
-        if (!landedSeen) {
-            pTarget = null;
-            pFeat = null;
-            return;
-        }
         boolean good;
         double weight;
-        if (dead || landed) {
-            good = pFeat[1] > 0.9 && pSit != AiBrain.RISE;
+        if (landed || dead) {
+            // Only label the sample positive when this specific attack produced a confirmed hit.
+            good = landed && pFeat[1] > 0.9 && pSit != AiBrain.RISE;
             weight = good ? (pSit == AiBrain.FALL ? 1.4 : 1.0) : 0.9;
         } else {
+            // No damage was observed within the confirmation window: negative sample.
             good = false;
             weight = 0.7;
         }
