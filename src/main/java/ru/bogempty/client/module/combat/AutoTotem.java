@@ -1,97 +1,101 @@
 package ru.bogempty.client.module.combat;
 
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.screen.slot.SlotActionType;
 import ru.bogempty.client.module.Category;
 import ru.bogempty.client.module.Module;
 import ru.bogempty.client.setting.Setting;
 
-import java.util.concurrent.ThreadLocalRandom;
-import net.minecraft.client.network.ClientPlayerEntity;
-import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.screen.slot.SlotActionType;
-
+/**
+ * Keeps a totem in the offhand whenever one is available in the inventory.
+ * Uses a single SWAP click, so it does not leave an item on the cursor.
+ */
 public class AutoTotem extends Module {
 
-    private final Setting.Num health = add(new Setting.Num("Health", 12.0, 1.0, 20.0, 0.5),
-            "Swap when health is at or below this value.");
-    private final Setting.Num delayMin = add(new Setting.Num("Delay min", 1, 0, 8, 1),
-            "Minimum ticks before swap.");
-    private final Setting.Num delayMax = add(new Setting.Num("Delay max", 3, 0, 12, 1),
-            "Maximum ticks before swap.");
-    private final Setting.Bool offhandOnly = add(new Setting.Bool("Offhand only", true),
-            "Put totem only into offhand.");
-    private final Setting.Bool silent = add(new Setting.Bool("Silent", true),
-            "Do not open inventory screen.");
     private final Setting.Bool predict = add(new Setting.Bool("Predict pop", true),
-            "Also swap after recent hard damage.");
-    private final Setting.Mode mode = add(new Setting.Mode("Mode", "Legit", "Strict"),
-            "Legit: random delay. Strict: minimal delay for hard situations.");
+            "Prioritizes an immediate swap after taking heavy damage.");
+    private final Setting.Bool offhandOnly = add(new Setting.Bool("Offhand only", true),
+            "Keep the totem in the offhand.");
+    private final Setting.Num health = add(new Setting.Num("Health", 12.0, 1.0, 20.0, 0.5),
+            "Health threshold for urgent replacement.");
 
-    private int waitTicks = 0;
-    private float lastHp = 20f;
+    private float lastHp = 20.0f;
     private long lastDamageMs = 0L;
+    private int cooldownTicks = 0;
 
     public AutoTotem() {
-        super("AutoTotem", "Puts a totem into offhand when low on health", Category.COMBAT);
+        super("AutoTotem", "Automatically keeps a totem in the offhand", Category.COMBAT);
+    }
+
+    @Override
+    public void onEnable() {
+        lastHp = mc.player == null ? 20.0f : mc.player.getHealth() + mc.player.getAbsorptionAmount();
+        lastDamageMs = 0L;
+        cooldownTicks = 0;
     }
 
     @Override
     public void onTick() {
         ClientPlayerEntity p = mc.player;
-        if (p == null || mc.interactionManager == null || mc.currentScreen != null) return;
+        if (p == null || mc.world == null || mc.interactionManager == null) return;
+
+        // Never send inventory clicks while another screen/container is open.
+        if (mc.currentScreen != null || p.currentScreenHandler != p.playerScreenHandler) return;
 
         float hp = p.getHealth() + p.getAbsorptionAmount();
-        if (hp < lastHp - 2.0f) lastDamageMs = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
+        if (hp < lastHp - 2.0f) lastDamageMs = now;
         lastHp = hp;
 
-        ItemStack off = p.getOffHandStack();
-        if (off.isOf(Items.TOTEM_OF_UNDYING)) {
-            waitTicks = 0;
-            return;
-        }
-
-        boolean need = hp <= health.get()
-                || (predict.get() && System.currentTimeMillis() - lastDamageMs < 350);
-
-        if (!need) {
-            waitTicks = 0;
+        ItemStack offhand = p.getOffHandStack();
+        if (offhand.isOf(Items.TOTEM_OF_UNDYING)) {
+            cooldownTicks = 0;
             return;
         }
 
         int slot = findTotemSlot(p);
-        if (slot == -1) return;
+        if (slot < 0) return;
 
-        if (waitTicks <= 0) {
-            int min = (int) delayMin.get();
-            int max = Math.max(min, (int) delayMax.get());
-            waitTicks = mode.is("Strict") ? min : ThreadLocalRandom.current().nextInt(min, max + 1);
+        boolean urgent = hp <= health.get()
+                || (predict.get() && now - lastDamageMs < 350L);
+
+        if (cooldownTicks > 0 && !urgent) {
+            cooldownTicks--;
             return;
         }
 
-        waitTicks--;
-        if (waitTicks > 0) return;
-
-        swapToOffhand(slot);
+        // SlotActionType.SWAP with button 40 exchanges the chosen inventory
+        // slot directly with the offhand (slot 45) in one server action.
+        mc.interactionManager.clickSlot(
+                p.playerScreenHandler.syncId,
+                slot,
+                40,
+                SlotActionType.SWAP,
+                p
+        );
+        cooldownTicks = 2;
     }
 
-    private int findTotemSlot(PlayerEntity p) {
-        for (int i = 0; i < 36; i++) {
-            ItemStack s = p.getInventory().getStack(i);
-            if (s.isOf(Items.TOTEM_OF_UNDYING)) return i < 9 ? i + 36 : i;
+    private int findTotemSlot(ClientPlayerEntity p) {
+        // PlayerScreenHandler slot IDs: 9..35 inventory, 36..44 hotbar.
+        // Search hotbar first, then the rest of the inventory.
+        for (int i = 0; i < 9; i++) {
+            if (p.getInventory().getStack(i).isOf(Items.TOTEM_OF_UNDYING)) {
+                return 36 + i;
+            }
+        }
+        for (int i = 9; i < 36; i++) {
+            if (p.getInventory().getStack(i).isOf(Items.TOTEM_OF_UNDYING)) {
+                return i;
+            }
         }
         return -1;
     }
 
-    private void swapToOffhand(int invSlot) {
-        if (mc.interactionManager == null || mc.player == null) return;
-        int sync = mc.player.currentScreenHandler.syncId;
-
-        mc.interactionManager.clickSlot(sync, invSlot, 0, SlotActionType.PICKUP, mc.player);
-        mc.interactionManager.clickSlot(sync, 45, 0, SlotActionType.PICKUP, mc.player);
-
-        if (!mc.player.currentScreenHandler.getCursorStack().isEmpty()) {
-            mc.interactionManager.clickSlot(sync, invSlot, 0, SlotActionType.PICKUP, mc.player);
-        }
+    @Override
+    public void onDisable() {
+        cooldownTicks = 0;
     }
 }
