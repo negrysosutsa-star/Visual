@@ -126,6 +126,9 @@ public class AiTriggerBot extends Module {
             releaseJump();
             lastFeat = null;
             pTarget = null;
+            pFeat = null;
+            armed = false;
+            prevAttack = false;
             why = "Нет мира";
             return;
         }
@@ -134,7 +137,9 @@ public class AiTriggerBot extends Module {
             releaseJump();
             lastFeat = null;
             pTarget = null;
+            pFeat = null;
             armed = false;
+            prevAttack = false;
             why = "Нужен меч";
             return;
         }
@@ -167,9 +172,12 @@ public class AiTriggerBot extends Module {
         LivingEntity t = findTarget(p);
         if (t == null) {
             lastFeat = null;
+            pTarget = null;
+            pFeat = null;
             lastProb = 0.0;
             armed = false;
             releaseJump();
+            why = "Нет цели в прицеле";
             return;
         }
 
