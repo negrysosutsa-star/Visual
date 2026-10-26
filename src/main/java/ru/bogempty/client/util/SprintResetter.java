@@ -12,7 +12,6 @@ import net.minecraft.client.util.InputUtil;
  */
 public final class SprintResetter {
     private static int ticksLeft;
-    private static boolean wasForwardPressed;
     private static boolean resetActive;
 
     private SprintResetter() {}
@@ -30,10 +29,6 @@ public final class SprintResetter {
         }
 
         KeyBinding forward = mc.options.forwardKey;
-        if (!resetActive) {
-            wasForwardPressed = forward.isPressed();
-        }
-
         resetActive = true;
         ticksLeft = Math.max(1, Math.min(3, ticks));
         forward.setPressed(false);
@@ -81,14 +76,13 @@ public final class SprintResetter {
             // Если окно не в фокусе, не считаем физическую клавишу удерживаемой.
             boolean physicallyPressed = mc.getWindow().isFocused()
                     && InputUtil.isKeyPressed(mc.getWindow().getHandle(), code);
-            forward.setPressed(physicallyPressed || wasForwardPressed && physicallyPressed);
+            forward.setPressed(physicallyPressed);
         } catch (RuntimeException ignored) {
             // Если опрос клавиши временно недоступен, не оставляем W принудительно зажатой.
             mc.options.forwardKey.setPressed(false);
         } finally {
             resetActive = false;
             ticksLeft = 0;
-            wasForwardPressed = false;
         }
     }
 }
