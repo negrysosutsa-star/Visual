@@ -14,8 +14,7 @@ import ru.bogempty.client.module.visual.NoRender;
 @Mixin(BackgroundRenderer.class)
 public abstract class BackgroundRendererMixin {
     @ModifyVariable(method = "applyFog", at = @At("HEAD"), argsOnly = true, ordinal = 0)
-    private static float visual$removeFog(float viewDistance, Camera camera, FogType fogType,
-                                          Vector4f color, boolean thickFog, float tickDelta) {
+    private static float visual$removeFog(float viewDistance) {
         if (BogEmptyClient.moduleManager == null) return viewDistance;
         for (Module module : BogEmptyClient.moduleManager.modules) {
             if (module instanceof NoRender noRender && noRender.isFogDisabled()) {
