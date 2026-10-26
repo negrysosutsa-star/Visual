@@ -29,6 +29,7 @@ import ru.bogempty.client.module.visual.HitFx;
 import ru.bogempty.client.module.visual.Nametags;
 import ru.bogempty.client.module.visual.NoRender;
 import ru.bogempty.client.module.visual.Zoom;
+import ru.bogempty.client.module.visual.Freecam;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +47,7 @@ public class ModuleManager {
 
         modules.add(new FullBright());
         modules.add(new Zoom());
+        modules.add(new Freecam());
         modules.add(new CustomSky());
         modules.add(new NoRender());
         modules.add(new CustomCrosshair());
