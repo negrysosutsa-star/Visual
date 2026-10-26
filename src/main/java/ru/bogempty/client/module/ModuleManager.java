@@ -13,6 +13,7 @@ import ru.bogempty.client.module.hud.ArrayListModule;
 import ru.bogempty.client.module.hud.GpsHud;
 import ru.bogempty.client.module.hud.InfoHud;
 import ru.bogempty.client.module.hud.Keystrokes;
+import ru.bogempty.client.module.hud.NeonHud;
 import ru.bogempty.client.module.hud.Radar;
 import ru.bogempty.client.module.hud.TargetHud;
 import ru.bogempty.client.module.hud.Watermark;
@@ -54,6 +55,7 @@ public class ModuleManager {
         modules.add(new FxParticles());
 
         modules.add(new Watermark());
+        modules.add(new NeonHud());
         modules.add(new InfoHud());
         modules.add(new Keystrokes());
         modules.add(new TargetHud());
