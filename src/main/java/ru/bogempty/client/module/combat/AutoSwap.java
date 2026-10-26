@@ -15,37 +15,30 @@ import ru.bogempty.client.setting.Setting;
 import java.util.Locale;
 
 /**
- * Свап по клавише. Клавиша модуля (СКМ по модулю в меню) НЕ включает его, а делает свап.
- * Включи модуль в меню, назначь клавишу и жми её в игре.
+ * Один общий bind; выбранный профиль задаёт пару предметов для переключения.
  */
 public class AutoSwap extends Module {
-    private static final String[] ITEMS = {
-            "Тотем", "Сфера", "Талисман", "Щит", "Золотое яблоко", "Жемчуг Эндера", "Кристалл Энда"
-    };
-
-    private final Setting.Mode mode = add(new Setting.Mode("Режим",
-            "Оффхенд A⇄B", "Рука A⇄B", "Только A в оффхенд"),
-            "Оффхенд A⇄B: в левую руку то A, то B. Рука A⇄B: в основную руку то A, то B. Только A в оффхенд: всегда A.");
-    private final Setting.Mode itemA = add(new Setting.Mode("Предмет A", ITEMS),
-            "Первый предмет. Тотем — обычный тотем. Сфера и Талисман ищутся по названию предмета.");
-    private final Setting.Mode itemB = add(new Setting.Mode("Предмет B", ITEMS),
-            "Второй предмет для обмена.");
-    private final Setting.Num delay = add(new Setting.Num("Задержка, тики", 0, 0, 5, 1),
-            "Через сколько тиков после нажатия сделать свап.");
+    private final Setting.Mode profile = add(new Setting.Mode("Профиль",
+            "Тотем → Тотем", "Сфера → Сфера", "Тотем ⇄ Сфера"),
+            "Выбери профиль здесь. Все профили используют одну клавишу AutoSwap.");
+    private final Setting.Mode handMode = add(new Setting.Mode("Куда свапать",
+            "Оффхенд", "Основная рука"),
+            "Выбери, куда переключать предмет.");
+    private final Setting.Num delay = add(new Setting.Num("Задержка, тики", 1, 0, 10, 1),
+            "Задержка между нажатием бинда и свапом.");
     private final Setting.Bool preferHotbar = add(new Setting.Bool("Сначала хотбар", true),
             "Искать предмет сначала в хотбаре, потом в инвентаре.");
     private final Setting.Bool toastOn = add(new Setting.Bool("Уведомление", true),
-            "Показывать на экране, что именно было свапнуто.");
+            "Показывать результат свапа на экране.");
 
     private int pending = -1;
     private String toast = "";
     private long toastUntil = 0L;
 
     public AutoSwap() {
-        super("AutoSwap", "Свап предметов по клавише (тотем, сфера, талисман и др.)", Category.COMBAT);
+        super("AutoSwap", "Свап предметов по одному бинду с выбираемыми профилями", Category.COMBAT);
         keyAction = true;
         key = GLFW.GLFW_KEY_X;
-        itemB.index = 1;
     }
 
     @Override
@@ -61,7 +54,8 @@ public class AutoSwap extends Module {
     @Override
     public void onTick() {
         ClientPlayerEntity p = mc.player;
-        if (p == null || mc.interactionManager == null || mc.currentScreen != null) {
+        if (p == null || mc.interactionManager == null || mc.currentScreen != null
+                || p.currentScreenHandler != p.playerScreenHandler) {
             pending = -1;
             return;
         }
@@ -75,41 +69,52 @@ public class AutoSwap extends Module {
     }
 
     private void run(ClientPlayerEntity p) {
-        String a = itemA.get();
-        String b = itemB.get();
-
-        if (mode.is("Только A в оффхенд")) {
-            if (matches(p.getOffHandStack(), a)) {
-                say("Уже в оффхенде: " + a);
-                return;
-            }
-            toOffhand(p, a);
-            return;
+        String a;
+        String b;
+        switch (profile.get()) {
+            case "Сфера → Сфера":
+                a = "Сфера";
+                b = "Сфера";
+                break;
+            case "Тотем ⇄ Сфера":
+                a = "Тотем";
+                b = "Сфера";
+                break;
+            default:
+                a = "Тотем";
+                b = "Тотем";
+                break;
         }
 
-        if (mode.is("Рука A⇄B")) {
-            String want = matches(p.getMainHandStack(), a) ? b : a;
+        if (handMode.is("Основная рука")) {
+            String current = itemName(p.getMainHandStack());
+            String want = current.equals(a) ? b : a;
             toMainHand(p, want);
-            return;
+        } else {
+            String current = itemName(p.getOffHandStack());
+            String want = current.equals(a) ? b : a;
+            // Для профилей A→A ищем следующий предмет того же типа, чтобы можно было
+            // обновить стак/предмет из инвентаря; если уже стоит и других нет — ничего не меняем.
+            toOffhand(p, want);
         }
-
-        // Оффхенд A⇄B: если там A, кладём B, иначе A
-        String want = matches(p.getOffHandStack(), a) ? b : a;
-        toOffhand(p, want);
     }
 
     private void toOffhand(ClientPlayerEntity p, String want) {
         if (matches(p.getOffHandStack(), want)) {
-            say("Уже в оффхенде: " + want);
-            return;
+            int alternate = find(p, want, true, true);
+            if (alternate < 0) {
+                say("Уже стоит: " + want);
+                return;
+            }
+            click(p, alternate, 40);
+        } else {
+            int slot = find(p, want, true, false);
+            if (slot < 0) {
+                say("Нет предмета: " + want);
+                return;
+            }
+            click(p, slot, 40);
         }
-        int slot = find(p, want, false);
-        if (slot == -1) {
-            say("Нет предмета: " + want);
-            return;
-        }
-        // один клик SWAP с кнопкой 40 меняет слот и оффхенд местами
-        click(p, slot, 40);
         say("Оффхенд: " + want);
     }
 
@@ -118,36 +123,41 @@ public class AutoSwap extends Module {
             say("Уже в руке: " + want);
             return;
         }
-        int slot = find(p, want, true);
-        if (slot == -1) {
+        int slot = find(p, want, true, false);
+        if (slot < 0) {
             say("Нет предмета: " + want);
             return;
         }
-        if (slot >= 36) {
-            // предмет в хотбаре: просто выбираем слот
-            p.getInventory().selectedSlot = slot - 36;
-        } else {
-            // предмет в инвентаре: меняем с выбранным слотом хотбара
-            click(p, slot, p.getInventory().selectedSlot);
-        }
+        if (slot >= 36) p.getInventory().selectedSlot = slot - 36;
+        else click(p, slot, p.getInventory().selectedSlot);
         say("В руке: " + want);
     }
 
-    /** Ищет предмет. Возвращает id слота в PlayerScreenHandler: 9..35 инвентарь, 36..44 хотбар. */
-    private int find(ClientPlayerEntity p, String want, boolean hotbarFirstForced) {
-        boolean hotbarFirst = hotbarFirstForced || preferHotbar.get();
-        if (hotbarFirst) {
-            for (int i = 0; i < 9; i++) if (matches(p.getInventory().getStack(i), want)) return 36 + i;
-            for (int i = 9; i < 36; i++) if (matches(p.getInventory().getStack(i), want)) return i;
-        } else {
-            for (int i = 9; i < 36; i++) if (matches(p.getInventory().getStack(i), want)) return i;
-            for (int i = 0; i < 9; i++) if (matches(p.getInventory().getStack(i), want)) return 36 + i;
+    private int find(ClientPlayerEntity p, String want, boolean hotbarFirst, boolean excludeOffhandTwin) {
+        if (hotbarFirst && preferHotbar.get()) {
+            for (int i = 0; i < 9; i++) {
+                int id = 36 + i;
+                if (matches(p.getInventory().getStack(i), want)
+                        && (!excludeOffhandTwin || id != 45)) return id;
+            }
+        }
+        for (int i = 9; i < 36; i++) {
+            if (matches(p.getInventory().getStack(i), want)) return i;
+        }
+        for (int i = 0; i < 9; i++) {
+            if (matches(p.getInventory().getStack(i), want)) return 36 + i;
         }
         return -1;
     }
 
     private void click(ClientPlayerEntity p, int slot, int button) {
         mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slot, button, SlotActionType.SWAP, p);
+    }
+
+    private static String itemName(ItemStack stack) {
+        if (matches(stack, "Тотем")) return "Тотем";
+        if (matches(stack, "Сфера")) return "Сфера";
+        return "";
     }
 
     private static String plainName(ItemStack s) {
@@ -157,22 +167,11 @@ public class AutoSwap extends Module {
     private static boolean matches(ItemStack s, String option) {
         if (s == null || s.isEmpty()) return false;
         switch (option) {
-            case "Тотем": {
-                String n = plainName(s);
-                return s.isOf(Items.TOTEM_OF_UNDYING) && !n.contains("сфер") && !n.contains("талисман");
-            }
+            case "Тотем":
+                return s.isOf(Items.TOTEM_OF_UNDYING)
+                        && !plainName(s).contains("сфер") && !plainName(s).contains("талисман");
             case "Сфера":
                 return plainName(s).contains("сфер");
-            case "Талисман":
-                return plainName(s).contains("талисман");
-            case "Щит":
-                return s.isOf(Items.SHIELD);
-            case "Золотое яблоко":
-                return s.isOf(Items.GOLDEN_APPLE) || s.isOf(Items.ENCHANTED_GOLDEN_APPLE);
-            case "Жемчуг Эндера":
-                return s.isOf(Items.ENDER_PEARL);
-            case "Кристалл Энда":
-                return s.isOf(Items.END_CRYSTAL);
             default:
                 return false;
         }
