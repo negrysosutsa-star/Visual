@@ -2,13 +2,11 @@ package ru.bogempty.client.util;
 
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 
 /**
- * Короткий W-tap после удара.
- *
- * Сохраняет состояние клавиши до сброса и восстанавливает фактическое
- * состояние физической клавиши, чтобы W не оставалась залипшей.
+ * Короткий локальный сброс движения вперёд после удара.
+ * Восстанавливает состояние клавиш через штатный механизм Minecraft,
+ * чтобы не зависеть от типа привязки клавиши (клавиатура/мышь).
  */
 public final class SprintResetter {
     private static int ticksLeft;
@@ -16,22 +14,16 @@ public final class SprintResetter {
 
     private SprintResetter() {}
 
-    /**
-     * Временно отпускает движение вперёд. Вызывается после удара.
-     * Значение ticks ограничено диапазоном 1..3.
-     */
     public static void trigger(int ticks) {
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null || mc.options == null
-                || mc.currentScreen != null || mc.getWindow() == null) {
+        if (!canRun(mc)) {
             cancel();
             return;
         }
 
-        KeyBinding forward = mc.options.forwardKey;
-        resetActive = true;
         ticksLeft = Math.max(1, Math.min(3, ticks));
-        forward.setPressed(false);
+        resetActive = true;
+        mc.options.forwardKey.setPressed(false);
         mc.player.setSprinting(false);
     }
 
@@ -40,8 +32,7 @@ public final class SprintResetter {
         if (!resetActive) return;
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.player == null || mc.world == null || mc.options == null
-                || mc.currentScreen != null || mc.getWindow() == null) {
+        if (!canRun(mc)) {
             cancel();
             return;
         }
@@ -51,7 +42,7 @@ public final class SprintResetter {
         }
     }
 
-    /** Безопасно завершает сброс, например при открытии меню или выходе из мира. */
+    /** Завершает сброс при открытии меню или смене мира. */
     public static void cancel() {
         if (!resetActive) {
             ticksLeft = 0;
@@ -59,7 +50,7 @@ public final class SprintResetter {
         }
 
         MinecraftClient mc = MinecraftClient.getInstance();
-        if (mc.options != null && mc.getWindow() != null) {
+        if (mc.options != null) {
             restore(mc);
         } else {
             resetActive = false;
@@ -67,19 +58,16 @@ public final class SprintResetter {
         }
     }
 
+    private static boolean canRun(MinecraftClient mc) {
+        return mc.player != null && mc.world != null && mc.options != null
+                && mc.currentScreen == null && mc.getWindow() != null
+                && mc.getWindow().isFocused();
+    }
+
     private static void restore(MinecraftClient mc) {
         try {
-            KeyBinding forward = mc.options.forwardKey;
-            int code = InputUtil.fromTranslationKey(
-                    forward.getBoundKeyTranslationKey()).getCode();
-
-            // Если окно не в фокусе, не считаем физическую клавишу удерживаемой.
-            boolean physicallyPressed = mc.getWindow().isFocused()
-                    && InputUtil.isKeyPressed(mc.getWindow().getHandle(), code);
-            forward.setPressed(physicallyPressed);
-        } catch (RuntimeException ignored) {
-            // Если опрос клавиши временно недоступен, не оставляем W принудительно зажатой.
-            mc.options.forwardKey.setPressed(false);
+            // Перечитывает фактическое состояние всех привязок штатным кодом игры.
+            KeyBinding.updatePressedStates();
         } finally {
             resetActive = false;
             ticksLeft = 0;
